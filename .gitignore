@@ -9,6 +9,7 @@
 .env
 .env.*
 !.env.example
+.python-version.local
 
 # Python
 __pycache__/
@@ -17,6 +18,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+.cache/
 
 # Node / Next.js
 node_modules/
@@ -30,9 +32,10 @@ build/
 tmp/
 data/
 *.log
+.coverage
+htmlcov/
 
 # Infrastructure state
 .terraform/
 *.tfstate
 *.tfstate.*
-

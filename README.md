@@ -20,7 +20,7 @@ StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 D
 
 | ID | Module | 当前状态 | 目标 |
 | --- | --- | --- | --- |
-| M0 | 项目基础与开发环境 | `正在实现` | 建立可复现的本地开发环境、目录与工程规范 |
+| M0 | 项目基础与开发环境 | `已实现` | 建立可复现的本地开发环境、目录与工程规范 |
 | M1 | React / Next.js Demo Dashboard | `未开始` | 给用户一个可操作、可观察系统变化的 Demo 页面 |
 | M2 | FastAPI API Gateway | `未开始` | 提供预测、Demo 控制、健康检查和指标接口 |
 | M3 | Kafka Event Pipeline | `未开始` | 实现事件生产、缓冲、消费与消费积压观测 |
@@ -78,7 +78,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 ## Modules
 
-### M0 - 项目基础与开发环境 `正在实现`
+### M0 - 项目基础与开发环境 `已实现`
 
 负责所有模块共享的工程基础。
 
@@ -88,12 +88,12 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 - [x] 创建 Python 3.11 Conda 环境与 `environment.yml`。
 - [x] 建立 `apps/`、`services/`、`infra/` 和 `docs/` 基础目录。
 - [x] 添加架构图。
-- [ ] 确定 Python、Node.js 和容器依赖的版本锁定方案。
-- [ ] 增加统一配置管理和 `.env.example`。
-- [ ] 增加代码格式化、lint、类型检查和 pre-commit hooks。
-- [ ] 增加根目录任务入口，例如 `Makefile` 或 `justfile`。
+- [x] 确定 Python、Node.js 和容器依赖的版本锁定方案。
+- [x] 增加统一配置管理和 `.env.example`。
+- [x] 增加代码格式化、lint、类型检查和 pre-commit hooks。
+- [x] 增加根目录任务入口 `Makefile`。
 
-验收条件：新开发者能够根据 README 在干净环境中完成安装，并启动最小服务。
+验收条件：新开发者能够根据 README 创建开发环境、安装 Git hooks，并通过全部基础质量检查。最小应用服务将在 Phase 1 中实现。
 
 ### M1 - React / Next.js Demo Dashboard `未开始`
 
@@ -374,11 +374,13 @@ StreamPredict/
 
 ## 本地开发
 
-目前仅完成基础 Conda 环境配置，应用依赖与服务启动命令将在 M0 和 Phase 1 中补充。
+M0 开发环境已经完成。完整说明见 [`docs/development.md`](docs/development.md)；应用依赖与服务启动命令将在 Phase 1 中补充。
 
 ```bash
 conda env create -f environment.yml
 conda activate streampredict
+make hooks
+make check
 ```
 
 如果环境已经创建，可使用：

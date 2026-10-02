@@ -4,6 +4,11 @@ channels:
   - defaults
 
 dependencies:
-  - python=3.11
-  - pip
+  - python=3.11.17
+  - pip>=26,<27
+  - pip:
+      - mypy>=1.18,<2
+      - pre-commit>=4.3,<5
+      - pytest>=8.4,<9
+      - ruff>=0.14,<1
 

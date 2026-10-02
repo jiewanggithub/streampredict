@@ -1,0 +1,31 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: conda run -n streampredict ruff check .
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]
+
+      - id: ruff-format
+        name: ruff format check
+        entry: conda run -n streampredict ruff format --check .
+        language: system
+        pass_filenames: false
+        types_or: [python, pyi]
+
+      - id: project-validation
+        name: project foundation validation
+        entry: conda run -n streampredict python tools/validate_project.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: whitespace
+        name: trailing whitespace
+        entry: conda run -n streampredict python tools/check_whitespace.py
+        language: system
+        pass_filenames: false
+        always_run: true
+

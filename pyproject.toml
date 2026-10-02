@@ -1,0 +1,31 @@
+[project]
+name = "streampredict"
+version = "0.1.0"
+description = "Real-time machine-learning serving and autoscaling demo platform"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+pretty = true
+show_error_codes = true
+exclude = ["^build/", "^dist/", "^node_modules/"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+pythonpath = ["."]
+testpaths = ["tests"]
