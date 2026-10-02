@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+coverage/
+
+# Build and runtime data
+dist/
+build/
+tmp/
+data/
+*.log
+
+# Infrastructure state
+.terraform/
+*.tfstate
+*.tfstate.*
+
