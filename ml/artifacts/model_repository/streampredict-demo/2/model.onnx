@@ -1,0 +1,399 @@
+
+pytorch2.14.1:ÃÖ
+Æ
+features
+val_0
+val_1
+val_1val_3node_Slice_3"SliceJ9
+	namespace,: __main__.RiskModel/unbind: aten.unbind.intJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.unbind.int']Já
+pkg.torch.onnx.fx_nodem%unbind : [num_users=3] = call_function[target=torch.ops.aten.unbind.int](args = (%features, 1), kwargs = {})J,
+pkg.torch.onnx.name_scopes['', 'unbind']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+£
+val_3
+val_1getitemnode_unbind__0"SqueezeJ9
+	namespace,: __main__.RiskModel/unbind: aten.unbind.intJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.unbind.int']Já
+pkg.torch.onnx.fx_nodem%unbind : [num_users=3] = call_function[target=torch.ops.aten.unbind.int](args = (%features, 1), kwargs = {})J,
+pkg.torch.onnx.name_scopes['', 'unbind']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+Æ
+features
+val_1
+val_6
+val_1val_8node_Slice_8"SliceJ9
+	namespace,: __main__.RiskModel/unbind: aten.unbind.intJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.unbind.int']Já
+pkg.torch.onnx.fx_nodem%unbind : [num_users=3] = call_function[target=torch.ops.aten.unbind.int](args = (%features, 1), kwargs = {})J,
+pkg.torch.onnx.name_scopes['', 'unbind']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+•
+val_8
+val_1	getitem_1node_unbind__1"SqueezeJ9
+	namespace,: __main__.RiskModel/unbind: aten.unbind.intJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.unbind.int']Já
+pkg.torch.onnx.fx_nodem%unbind : [num_users=3] = call_function[target=torch.ops.aten.unbind.int](args = (%features, 1), kwargs = {})J,
+pkg.torch.onnx.name_scopes['', 'unbind']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+±
+features
+val_6
+val_10
+val_1val_12node_Slice_12"SliceJ9
+	namespace,: __main__.RiskModel/unbind: aten.unbind.intJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.unbind.int']Já
+pkg.torch.onnx.fx_nodem%unbind : [num_users=3] = call_function[target=torch.ops.aten.unbind.int](args = (%features, 1), kwargs = {})J,
+pkg.torch.onnx.name_scopes['', 'unbind']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+¶
+val_12
+val_1	getitem_2node_unbind__2"SqueezeJ9
+	namespace,: __main__.RiskModel/unbind: aten.unbind.intJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.unbind.int']Já
+pkg.torch.onnx.fx_nodem%unbind : [num_users=3] = call_function[target=torch.ops.aten.unbind.int](args = (%features, 1), kwargs = {})J,
+pkg.torch.onnx.name_scopes['', 'unbind']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+ô
+getitem
+
+const_casttmpn2"AddJ;
+	namespace.: __main__.RiskModel/log1p: aten.log1p.defaultJN
+pkg.torch.onnx.class_hierarchy,['__main__.RiskModel', 'aten.log1p.default']JÜ
+pkg.torch.onnx.fx_nodel%log1p : [num_users=1] = call_function[target=torch.ops.aten.log1p.default](args = (%getitem,), kwargs = {})J+
+pkg.torch.onnx.name_scopes['', 'log1p']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+ã
+tmplog1pn3"LogJ;
+	namespace.: __main__.RiskModel/log1p: aten.log1p.defaultJN
+pkg.torch.onnx.class_hierarchy,['__main__.RiskModel', 'aten.log1p.default']JÜ
+pkg.torch.onnx.fx_nodel%log1p : [num_users=1] = call_function[target=torch.ops.aten.log1p.default](args = (%getitem,), kwargs = {})J+
+pkg.torch.onnx.name_scopes['', 'log1p']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+∑
+	getitem_1
+scalar_tensor_defaultdivnode_div"DivJ6
+	namespace): __main__.RiskModel/div: aten.div.TensorJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.div.Tensor']Jõ
+pkg.torch.onnx.fx_nodeÄ%div : [num_users=1] = call_function[target=torch.ops.aten.div.Tensor](args = (%getitem_1, %scalar_tensor_default), kwargs = {})J)
+pkg.torch.onnx.name_scopes['', 'div']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+ß
+	getitem_2
+
+const_casttmp_2n2_2"AddJ=
+	namespace0: __main__.RiskModel/log1p_1: aten.log1p.defaultJN
+pkg.torch.onnx.class_hierarchy,['__main__.RiskModel', 'aten.log1p.default']Jä
+pkg.torch.onnx.fx_nodep%log1p_1 : [num_users=1] = call_function[target=torch.ops.aten.log1p.default](args = (%getitem_2,), kwargs = {})J-
+pkg.torch.onnx.name_scopes['', 'log1p_1']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+ô
+tmp_2log1p_1n3_2"LogJ=
+	namespace0: __main__.RiskModel/log1p_1: aten.log1p.defaultJN
+pkg.torch.onnx.class_hierarchy,['__main__.RiskModel', 'aten.log1p.default']Jä
+pkg.torch.onnx.fx_nodep%log1p_1 : [num_users=1] = call_function[target=torch.ops.aten.log1p.default](args = (%getitem_2,), kwargs = {})J-
+pkg.torch.onnx.name_scopes['', 'log1p_1']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+º
+log1p
+val_1val_15node_Unsqueeze_15"	UnsqueezeJ;
+	namespace.: __main__.RiskModel/stack: aten.stack.defaultJN
+pkg.torch.onnx.class_hierarchy,['__main__.RiskModel', 'aten.stack.default']Jò
+pkg.torch.onnx.fx_node~%stack : [num_users=1] = call_function[target=torch.ops.aten.stack.default](args = ([%log1p, %div, %log1p_1], 1), kwargs = {})J+
+pkg.torch.onnx.name_scopes['', 'stack']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+∫
+div
+val_1val_17node_Unsqueeze_17"	UnsqueezeJ;
+	namespace.: __main__.RiskModel/stack: aten.stack.defaultJN
+pkg.torch.onnx.class_hierarchy,['__main__.RiskModel', 'aten.stack.default']Jò
+pkg.torch.onnx.fx_node~%stack : [num_users=1] = call_function[target=torch.ops.aten.stack.default](args = ([%log1p, %div, %log1p_1], 1), kwargs = {})J+
+pkg.torch.onnx.name_scopes['', 'stack']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+æ
+log1p_1
+val_1val_19node_Unsqueeze_19"	UnsqueezeJ;
+	namespace.: __main__.RiskModel/stack: aten.stack.defaultJN
+pkg.torch.onnx.class_hierarchy,['__main__.RiskModel', 'aten.stack.default']Jò
+pkg.torch.onnx.fx_node~%stack : [num_users=1] = call_function[target=torch.ops.aten.stack.default](args = ([%log1p, %div, %log1p_1], 1), kwargs = {})J+
+pkg.torch.onnx.name_scopes['', 'stack']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+»
+val_15
+val_17
+val_19stack
+node_stack"Concat*
+axis†J;
+	namespace.: __main__.RiskModel/stack: aten.stack.defaultJN
+pkg.torch.onnx.class_hierarchy,['__main__.RiskModel', 'aten.stack.default']Jò
+pkg.torch.onnx.fx_node~%stack : [num_users=1] = call_function[target=torch.ops.aten.stack.default](args = ([%log1p, %div, %log1p_1], 1), kwargs = {})J+
+pkg.torch.onnx.name_scopes['', 'stack']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+ò
+stack
+meansub_7
+node_sub_7"SubJ8
+	namespace+: __main__.RiskModel/sub_7: aten.sub.TensorJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.sub.Tensor']Jâ
+pkg.torch.onnx.fx_nodeo%sub_7 : [num_users=1] = call_function[target=torch.ops.aten.sub.Tensor](args = (%stack, %b_mean), kwargs = {})J+
+pkg.torch.onnx.name_scopes['', 'sub_7']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+ñ
+sub_7
+stddiv_1
+node_div_1"DivJ8
+	namespace+: __main__.RiskModel/div_1: aten.div.TensorJK
+pkg.torch.onnx.class_hierarchy)['__main__.RiskModel', 'aten.div.Tensor']Jà
+pkg.torch.onnx.fx_noden%div_1 : [num_users=1] = call_function[target=torch.ops.aten.div.Tensor](args = (%sub_7, %b_std), kwargs = {})J+
+pkg.torch.onnx.name_scopes['', 'div_1']J∞
+pkg.torch.onnx.stack_traceëFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 82, in forward
+    x = (self.transform(features) - self.mean) / self.std
+Ú
+div_1
+net.0.weight
+
+net.0.biaslinearnode_linear"Gemm*
+beta  Ä?†*
+transB†*
+alpha  Ä?†*
+transA †Jè
+	namespaceÅ: __main__.RiskModel/net: torch.nn.modules.container.Sequential/net.0: torch.nn.modules.linear.Linear/linear: aten.linear.defaultJö
+pkg.torch.onnx.class_hierarchyx['__main__.RiskModel', 'torch.nn.modules.container.Sequential', 'torch.nn.modules.linear.Linear', 'aten.linear.default']J¶
+pkg.torch.onnx.fx_nodeã%linear : [num_users=1] = call_function[target=torch.ops.aten.linear.default](args = (%div_1, %p_net_0_weight, %p_net_0_bias), kwargs = {})J<
+pkg.torch.onnx.name_scopes['', 'net', 'net.0', 'linear']Jﬁ
+pkg.torch.onnx.stack_traceøFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 83, in forward
+    return torch.sigmoid(self.net(x))
+  File "/opt/anaconda3/envs/streampredict/lib/python3.11/site-packages/torch/nn/modules/container.py", line 259, in forward
+    input = module(input)
+  File "/opt/anaconda3/envs/streampredict/lib/python3.11/site-packages/torch/nn/modules/linear.py", line 134, in forward
+    return F.linear(input, self.weight, self.bias)
+Ó
+linearrelu	node_relu"ReluJå
+	namespace: __main__.RiskModel/net: torch.nn.modules.container.Sequential/net.1: torch.nn.modules.activation.ReLU/relu: aten.relu.defaultJö
+pkg.torch.onnx.class_hierarchyx['__main__.RiskModel', 'torch.nn.modules.container.Sequential', 'torch.nn.modules.activation.ReLU', 'aten.relu.default']JÉ
+pkg.torch.onnx.fx_nodei%relu : [num_users=1] = call_function[target=torch.ops.aten.relu.default](args = (%linear,), kwargs = {})J:
+pkg.torch.onnx.name_scopes['', 'net', 'net.1', 'relu']Jﬁ
+pkg.torch.onnx.stack_traceøFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 83, in forward
+    return torch.sigmoid(self.net(x))
+  File "/opt/anaconda3/envs/streampredict/lib/python3.11/site-packages/torch/nn/modules/container.py", line 259, in forward
+    input = module(input)
+  File "/opt/anaconda3/envs/streampredict/lib/python3.11/site-packages/torch/nn/modules/activation.py", line 143, in forward
+    return F.relu(input, inplace=self.inplace)
+˙
+relu
+net.2.weight
+
+net.2.biaslinear_1node_linear_1"Gemm*
+beta  Ä?†*
+transB†*
+alpha  Ä?†*
+transA †Jë
+	namespaceÉ: __main__.RiskModel/net: torch.nn.modules.container.Sequential/net.2: torch.nn.modules.linear.Linear/linear_1: aten.linear.defaultJö
+pkg.torch.onnx.class_hierarchyx['__main__.RiskModel', 'torch.nn.modules.container.Sequential', 'torch.nn.modules.linear.Linear', 'aten.linear.default']Jß
+pkg.torch.onnx.fx_nodeå%linear_1 : [num_users=1] = call_function[target=torch.ops.aten.linear.default](args = (%relu, %p_net_2_weight, %p_net_2_bias), kwargs = {})J>
+pkg.torch.onnx.name_scopes ['', 'net', 'net.2', 'linear_1']Jﬁ
+pkg.torch.onnx.stack_traceøFile "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 83, in forward
+    return torch.sigmoid(self.net(x))
+  File "/opt/anaconda3/envs/streampredict/lib/python3.11/site-packages/torch/nn/modules/container.py", line 259, in forward
+    input = module(input)
+  File "/opt/anaconda3/envs/streampredict/lib/python3.11/site-packages/torch/nn/modules/linear.py", line 134, in forward
+    return F.linear(input, self.weight, self.bias)
+ú
+linear_1probabilitynode_sigmoid"SigmoidJ?
+	namespace2: __main__.RiskModel/sigmoid: aten.sigmoid.defaultJP
+pkg.torch.onnx.class_hierarchy.['__main__.RiskModel', 'aten.sigmoid.default']Jã
+pkg.torch.onnx.fx_nodeq%sigmoid : [num_users=1] = call_function[target=torch.ops.aten.sigmoid.default](args = (%linear_1,), kwargs = {})J-
+pkg.torch.onnx.name_scopes['', 'sigmoid']Jõ
+pkg.torch.onnx.stack_trace}File "/Users/jaywang/Developer/StreamPredict/ml/training/train.py", line 83, in forward
+    return torch.sigmoid(self.net(x))
+main_graph*ó Bnet.0.weightJÄE~Kª*˛næ+∑Õ<üï∑ºyuæΩ¬Zºì¿ÏæÑÌœΩﬁÑáæ•Z¥;/Í
+<ÅÒª˝ÉæLQ¯æXè“;ß—º3"€>äøÛ—;?@´æG@æ3.øº‚k ?itv>≤ÕåΩ¿»æç#§>9‡>¯ª?0Ñøãõ?.Î“>I‰=¬ƒs=fx£=_1&?]~ æ!#öæ,]ÌΩx¸&æºXã=/`æ¢Ìæ[¿? „ﬂ>Ôà≈Ωq¸ßæ‘Kº)ª<Ï}øi÷™æ”Òf>´—>IW>-ÈøÔVëΩ@Öuæ2;≠=…˝Ã>ÒÈ˜>ö≈∞ºøT‘Ω[¡"?fEƒæÚqæ}`‡<Ô>7æø
+!ø9ª>1¿‰ºêEFæ^†‘ΩàáóΩb8ˆæ¿…0Ωê3T?À é>Aï˚Ω¸$T>◊PΩ)ÄK>8Ω›æ©÷∆æÿ∫úΩΩÂΩæMŒæƒß´>†É>Jöi>ÿJ?Òæø4cO=(äº>G≥gæu◊ø˚ÃÙæ*ì B
+net.0.biasJÄtcÎæ÷2Ÿ>·!Ù>∞ﬁ6>=æNœøPF ø.Ωqæ:Kˆ=Rfòæxòh>ÎÒKøÛ/_æfgJ>N„=øJ;?´ ⁄>„¢gæÜR»>öç5ø^≠ø+'æª˚≤ªÕrˇ>z◊˘>l˘¥æ«X«<UW¬Ωÿﬁƒ>P¢´æÚ—Cøp±ææ*ó Bnet.2.weightJÄdsºÏ ÜΩîàæ¡¨≥∫Ñ[°Ω~†(>G*N>ÙâÄ>ìËvΩ°∫¥>@õG>(Å≈>òaˇª¯ëxºQ`ä>\xúæ±≠yætWä=[ô&æâÃË>•Q?B ΩˇËDæIáæêÆæ)>∂>‚J≈<ÍIÇΩQ¶æzÆ–>∑‘⁄>≥±4æ*B
+net.2.biasJÏé®æ*BmeanJ1∞@Èˇ?éÿ§@*BstdJ›êã?á1ó?oGù?*B
+const_castJ  Ä?*Bscalar_tensor_defaultJ   A*Bval_0J        *Bval_1J       *Bval_6J       *Bval_10J       ZÃ
+features
+
+batch
+"=
+/pkg.torch.export.graph_signature.InputSpec.kind
+USER_INPUT"=
+5pkg.torch.export.graph_signature.InputSpec.persistentNone"-
+!pkg.torch.onnx.original_node_namefeaturesbë
+probability
+
+batch
+"?
+0pkg.torch.export.graph_signature.OutputSpec.kindUSER_OUTPUT",
+!pkg.torch.onnx.original_node_namesigmoidj–
+net.0.weight
+
+ 
+"<
+/pkg.torch.export.graph_signature.InputSpec.kind	PARAMETER"=
+5pkg.torch.export.graph_signature.InputSpec.persistentNone"3
+!pkg.torch.onnx.original_node_namep_net_0_weightj»
+
+net.0.bias
+
+
+ "<
+/pkg.torch.export.graph_signature.InputSpec.kind	PARAMETER"=
+5pkg.torch.export.graph_signature.InputSpec.persistentNone"1
+!pkg.torch.onnx.original_node_namep_net_0_biasj–
+net.2.weight
+
+
+ "<
+/pkg.torch.export.graph_signature.InputSpec.kind	PARAMETER"=
+5pkg.torch.export.graph_signature.InputSpec.persistentNone"3
+!pkg.torch.onnx.original_node_namep_net_2_weightj»
+
+net.2.bias
+
+
+"<
+/pkg.torch.export.graph_signature.InputSpec.kind	PARAMETER"=
+5pkg.torch.export.graph_signature.InputSpec.persistentNone"1
+!pkg.torch.onnx.original_node_namep_net_2_biasjπ
+mean
+
+
+"9
+/pkg.torch.export.graph_signature.InputSpec.kindBUFFER"=
+5pkg.torch.export.graph_signature.InputSpec.persistentTrue"+
+!pkg.torch.onnx.original_node_nameb_meanj∑
+std
+
+
+"9
+/pkg.torch.export.graph_signature.InputSpec.kindBUFFER"=
+5pkg.torch.export.graph_signature.InputSpec.persistentTrue"*
+!pkg.torch.onnx.original_node_nameb_stdjG
+
+const_cast
+ "1
+$pkg.onnxscript.optimizer.folded_from	['const']jS
+scalar_tensor_default
+ "2
+$pkg.onnxscript.optimizer.folded_from
+['val_13']j
+val_0
+
+
+j
+val_1
+
+
+j
+val_6
+
+
+j
+val_10
+
+
+j
+val_3
+
+batch
+j
+getitem
+	
+batchj
+val_8
+
+batch
+j
+	getitem_1
+	
+batchj
+val_12
+
+batch
+j
+	getitem_2
+	
+batchj
+tmp
+	
+batchj
+log1p
+	
+batchj
+div
+	
+batchj
+tmp_2
+	
+batchj
+log1p_1
+	
+batchj
+val_15
+
+batch
+j
+val_17
+
+batch
+j
+val_19
+
+batch
+j
+stack
+
+batch
+j
+sub_7
+
+batch
+j
+div_1
+
+batch
+j
+linear
+
+batch
+ j
+relu
+
+batch
+ j
+linear_1
+
+batch
+ÇÑ
+0pkg.torch.export.ExportedProgram.graph_signatureœ
+# inputs
+p_net_0_weight: PARAMETER target='net.0.weight'
+p_net_0_bias: PARAMETER target='net.0.bias'
+p_net_2_weight: PARAMETER target='net.2.weight'
+p_net_2_bias: PARAMETER target='net.2.bias'
+b_mean: BUFFER target='mean' persistent=True
+b_std: BUFFER target='std' persistent=True
+features: USER_INPUT
+
+# outputs
+sigmoid: USER_OUTPUT
+ÇH
+2pkg.torch.export.ExportedProgram.range_constraints{s97: VR[1, 4096]}B
+ 

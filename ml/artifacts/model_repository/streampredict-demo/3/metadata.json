@@ -1,19 +1,20 @@
 {
   "model": "streampredict-demo",
-  "version": "2",
-  "profile": "improved",
-  "description": "Improved: wider network, more data and epochs.",
+  "version": "3",
+  "profile": "skewed",
+  "description": "Data bug: trained on amounts in cents while serving sends dollars.",
   "parameters": {
     "samples": 120000,
     "hidden": 32,
     "epochs": 12,
     "learning_rate": 0.005,
+    "amount_scale": 100.0,
     "seed": 7
   },
   "metrics": {
     "auc": 0.7784,
     "log_loss": 0.5056,
-    "accuracy": 0.7502,
+    "accuracy": 0.75,
     "positive_rate": 0.3062,
     "test_samples": 24000
   },
@@ -32,18 +33,18 @@
       1.0
     ],
     "fractions": [
-      0.18475,
-      0.22062,
-      0.15871,
-      0.12783,
-      0.10804,
-      0.07767,
-      0.06,
-      0.03933,
-      0.01996,
-      0.00308
+      0.1865,
+      0.22012,
+      0.15658,
+      0.12817,
+      0.10754,
+      0.07938,
+      0.05958,
+      0.0395,
+      0.01942,
+      0.00321
     ],
-    "high_risk_rate": 0.06237
+    "high_risk_rate": 0.06212
   },
   "features": [
     "amount",
@@ -51,7 +52,7 @@
     "distance_km"
   ],
   "data": "synthetic(seed=7, samples=120000)",
-  "code_version": "fca5b3f",
-  "trained_at": "2026-10-03T03:17:01+00:00",
+  "code_version": "dbc4579",
+  "trained_at": "2026-10-03T03:46:01+00:00",
   "framework": "torch 2.14.1"
 }

@@ -21,6 +21,7 @@ import subprocess
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import onnx
@@ -38,12 +39,27 @@ class Profile:
     hidden: int
     epochs: int
     learning_rate: float
+    # Multiplier applied to `amount` in this profile's whole training pipeline (train and test).
+    amount_scale: float = 1.0
 
 
 PROFILES = {
     # A weaker first version, so v2 shows a measurable improvement.
     "baseline": Profile(samples=20_000, hidden=4, epochs=2, learning_rate=0.01),
     "improved": Profile(samples=120_000, hidden=32, epochs=12, learning_rate=0.005),
+    # A deliberately broken release for the rollback demo: the data pipeline reads amounts in cents
+    # while serving sends dollars. Offline metrics look healthy because evaluation shares the bug;
+    # only the live prediction distribution reveals it (training/serving skew).
+    "skewed": Profile(
+        samples=120_000, hidden=32, epochs=12, learning_rate=0.005, amount_scale=100.0
+    ),
+}
+
+
+DESCRIPTIONS = {
+    "baseline": "Baseline: tiny network, little data.",
+    "improved": "Improved: wider network, more data and epochs.",
+    "skewed": "Data bug: trained on amounts in cents while serving sends dollars.",
 }
 
 
@@ -86,6 +102,19 @@ class RiskModel(nn.Module):
         return torch.sigmoid(self.net(x))
 
 
+SCORE_BINS = np.linspace(0.0, 1.0, 11)
+
+
+def score_profile(scores: np.ndarray) -> dict[str, Any]:
+    """Expected output distribution on the evaluation set, recorded for post-deploy skew checks."""
+    counts, _ = np.histogram(scores, bins=SCORE_BINS)
+    return {
+        "bins": [round(float(b), 2) for b in SCORE_BINS],
+        "fractions": [round(float(c) / max(len(scores), 1), 5) for c in counts],
+        "high_risk_rate": round(float((scores >= 0.7).mean()), 5),
+    }
+
+
 def roc_auc(labels: np.ndarray, scores: np.ndarray) -> float:
     """Rank-based ROC AUC (Mann-Whitney U), without a scikit-learn dependency."""
     order = np.argsort(scores)
@@ -96,9 +125,10 @@ def roc_auc(labels: np.ndarray, scores: np.ndarray) -> float:
     return float((ranks[positives].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
-def train(profile: Profile, seed: int) -> tuple[RiskModel, dict[str, float]]:
+def train(profile: Profile, seed: int) -> tuple[RiskModel, dict[str, float], dict[str, Any]]:
     torch.manual_seed(seed)
     features, labels = synthetic_dataset(profile.samples, seed)
+    features[:, 0] *= profile.amount_scale
     split = int(0.8 * len(features))
     x_train, x_test = torch.from_numpy(features[:split]), torch.from_numpy(features[split:])
     y_train, y_test = torch.from_numpy(labels[:split]), labels[split:]
@@ -129,7 +159,7 @@ def train(profile: Profile, seed: int) -> tuple[RiskModel, dict[str, float]]:
         "positive_rate": round(float(y_test.mean()), 4),
         "test_samples": len(y_test),
     }
-    return model, metrics
+    return model, metrics, score_profile(scores)
 
 
 def export(model: RiskModel, path: Path) -> None:
@@ -183,7 +213,7 @@ def main() -> None:
         parser.error("--version must be >= 1")
 
     profile = PROFILES[args.profile]
-    model, metrics = train(profile, args.seed)
+    model, metrics, scores = train(profile, args.seed)
     model_dir = args.repository / args.model
     version_dir = model_dir / str(args.version)
     export(model, version_dir / "model.onnx")
@@ -192,8 +222,10 @@ def main() -> None:
         "model": args.model,
         "version": str(args.version),
         "profile": args.profile,
+        "description": DESCRIPTIONS[args.profile],
         "parameters": {**asdict(profile), "seed": args.seed},
         "metrics": metrics,
+        "score_profile": scores,
         "features": list(FEATURES),
         "data": f"synthetic(seed={args.seed}, samples={profile.samples})",
         "code_version": git_commit(),
