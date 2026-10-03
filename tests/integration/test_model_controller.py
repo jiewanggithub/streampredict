@@ -127,7 +127,11 @@ def run_with_manager(
 
     async def run() -> Any:
         config = ControllerSettings(
-            serving_url=url, deployed_repository=repository, soak_seconds=0, **settings
+            serving_url=url,
+            deployed_repository=repository,
+            soak_seconds=0,
+            unload_grace_seconds=0,
+            **settings,
         )
         admin = FileServingAdmin(repository, MODEL, url)
         manager = ReleaseManager(config, registry, admin)
@@ -163,6 +167,28 @@ def test_reconcile_deploys_the_champion(serving: tuple[str, Path]) -> None:
         assert await served_version(url) == "1"
 
     run_with_manager(serving, FakeRegistry(SEED), scenario)
+
+
+def test_reloads_fan_out_to_peer_replicas(serving: tuple[str, Path]) -> None:
+    """With a peer record, load calls go to each resolved replica rather than the Service."""
+    url, repository = serving
+    peers = url.removeprefix("http://")
+
+    async def run() -> list[str]:
+        admin = FileServingAdmin(repository, MODEL, "http://unused.invalid", serving_peers=peers)
+        manager = ReleaseManager(
+            ControllerSettings(deployed_repository=repository, soak_seconds=0),
+            FakeRegistry(SEED),
+            admin,
+        )
+        try:
+            await manager.reconcile()
+            return await admin._peer_urls()
+        finally:
+            await admin.close()
+
+    assert asyncio.run(run()) == [url]
+    assert httpx.get(f"{url}/v2/models/{MODEL}").json()["versions"] == ["1"]
 
 
 def test_good_release_is_promoted_and_bad_release_rolls_back(serving: tuple[str, Path]) -> None:
@@ -313,7 +339,9 @@ def test_controller_api_answers_cheap_checks_synchronously(serving: tuple[str, P
 
     url, repository = serving
     registry = FakeRegistry(SEED)
-    settings = ControllerSettings(serving_url=url, deployed_repository=repository, soak_seconds=0)
+    settings = ControllerSettings(
+        serving_url=url, deployed_repository=repository, soak_seconds=0, unload_grace_seconds=0
+    )
     with TestClient(create_controller_app(settings, registry=registry)) as client:
         deadline = time.monotonic() + 10
         while client.get("/ready").status_code != 200 and time.monotonic() < deadline:

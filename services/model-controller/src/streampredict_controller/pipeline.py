@@ -203,6 +203,7 @@ class ReleaseManager:
             return
         if await self.serving.default() != previous:
             await self.serving.set_default(previous)
+            await asyncio.sleep(self.settings.unload_grace_seconds)
         if record.version != previous and record.version in await self.serving.installed():
             await self.serving.uninstall(record.version)
         await asyncio.to_thread(
@@ -220,6 +221,7 @@ class ReleaseManager:
                 if target not in await self.serving.installed():
                     await self._install(target)
                 await self.serving.set_default(target)
+                await asyncio.sleep(self.settings.unload_grace_seconds)
                 await asyncio.to_thread(self.registry.set_champion, target)
                 await asyncio.to_thread(self.registry.set_status, target, "champion")
                 if current and current != target:

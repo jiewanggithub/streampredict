@@ -3,12 +3,20 @@
 The repository directory is the deployed state. Installing a version copies its artifacts into
 `<repo>/<model>/<version>/`; `<repo>/<model>/serving.json` names the default version that
 unversioned requests (and therefore the gateway) use. Every change is followed by a repository
-load call, so serving picks it up without a restart.
+load call on **every** serving replica, so all of them pick it up without a restart.
+
+With several replicas behind one Service, a call through the Service reaches a single pod, and
+only ready pods at that (a fresh pod is not ready until a model is loaded). `serving_peers` names
+a DNS record that resolves to every replica, including unready ones (a Kubernetes headless Service
+with publishNotReadyAddresses); load calls and request counters fan out to all of them.
 """
 
+import asyncio
+import contextlib
 import json
 import os
 import shutil
+import socket
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -50,9 +58,12 @@ class FileServingAdmin:
         model_name: str,
         serving_url: str,
         transport: httpx.AsyncBaseTransport | None = None,
+        serving_peers: str = "",
     ) -> None:
         self._model_dir = repository / model_name
         self._model = model_name
+        self._serving_url = serving_url.rstrip("/")
+        self._peers = serving_peers
         self._client = httpx.AsyncClient(base_url=serving_url, timeout=10, transport=transport)
 
     async def close(self) -> None:
@@ -104,13 +115,33 @@ class FileServingAdmin:
         value = json.loads(path.read_text()).get("default_version")
         return str(value) if value is not None else None
 
-    async def _reload(self) -> None:
+    async def _peer_urls(self) -> list[str]:
+        """Base URLs of every serving replica (or just the Service URL without a peer record)."""
+        if not self._peers:
+            return [self._serving_url]
+        host, _, port = self._peers.partition(":")
         try:
-            response = await self._client.post(f"/v2/repository/models/{self._model}/load")
-        except httpx.HTTPError as exc:
-            raise ServingError(f"serving unreachable: {exc!r}") from exc
-        if response.status_code != 200:
-            raise ServingError(f"serving load failed ({response.status_code}): {response.text}")
+            infos = await asyncio.get_running_loop().getaddrinfo(
+                host, int(port or 8000), type=socket.SOCK_STREAM
+            )
+        except OSError as exc:
+            raise ServingError(f"cannot resolve serving peers {self._peers}: {exc}") from exc
+        addresses = sorted({info[4][0] for info in infos})
+        return [f"http://{address}:{port or 8000}" for address in addresses]
+
+    async def _reload(self) -> None:
+        urls = await self._peer_urls()
+        if not urls:
+            raise ServingError("no serving replicas found")
+        for url in urls:
+            try:
+                response = await self._client.post(f"{url}/v2/repository/models/{self._model}/load")
+            except httpx.HTTPError as exc:
+                raise ServingError(f"serving replica {url} unreachable: {exc!r}") from exc
+            if response.status_code != 200:
+                raise ServingError(
+                    f"serving load failed on {url} ({response.status_code}): {response.text}"
+                )
 
     async def probe(self, version: str, batch: np.ndarray) -> ProbeResult:
         scores: list[float] = []
@@ -144,10 +175,13 @@ class FileServingAdmin:
         return ProbeResult(scores=scores, latencies_ms=latencies, errors=errors, requests=requests)
 
     async def counters(self, version: str) -> tuple[int, int]:
-        """Return (errors, total) inference requests the serving service saw for a version."""
-        response = await self._client.get("/metrics")
+        """Return (errors, total) inference requests all serving replicas saw for a version."""
         errors = total = 0
-        for line in response.text.splitlines():
+        lines: list[str] = []
+        for url in await self._peer_urls():
+            with contextlib.suppress(httpx.HTTPError):
+                lines.extend((await self._client.get(f"{url}/metrics")).text.splitlines())
+        for line in lines:
             if not line.startswith("streampredict_serving_requests_total{"):
                 continue
             labels, _, value = line.rpartition(" ")

@@ -44,7 +44,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         admin = serving or FileServingAdmin(
-            settings.deployed_repository, settings.model_name, settings.serving_url
+            settings.deployed_repository,
+            settings.model_name,
+            settings.serving_url,
+            serving_peers=settings.serving_peers,
         )
         manager = ReleaseManager(
             settings,

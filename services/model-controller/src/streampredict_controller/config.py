@@ -13,6 +13,9 @@ class ControllerSettings(BaseSettings):
     mlflow_tracking_uri: str = "http://localhost:5000"
     model_name: str = "streampredict-demo"
     serving_url: str = "http://localhost:8001"
+    # host[:port] resolving to every serving replica (Kubernetes headless Service); empty means
+    # a single replica reachable at serving_url.
+    serving_peers: str = ""
     # Shared with the serving service: the controller writes deployed versions here.
     deployed_repository: Path = Path("deployed_models")
     log_level: str = "INFO"
@@ -30,6 +33,9 @@ class ControllerSettings(BaseSettings):
     max_p95_latency_ms: float = Field(default=50.0, gt=0)
     max_error_rate: float = Field(default=0.01, ge=0, le=1)
     soak_seconds: float = Field(default=10.0, ge=0, le=600)
+    # Before unloading a version that was serving, wait for gateways (which re-read the default
+    # version every 2 s) to move off it.
+    unload_grace_seconds: float = Field(default=5.0, ge=0, le=120)
 
 
 @lru_cache
