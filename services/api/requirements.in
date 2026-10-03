@@ -1,5 +1,6 @@
 # Direct runtime dependencies for the API gateway. Regenerate requirements.txt after changes:
 #   make api-lock
+aiokafka==0.14.0
 fastapi==0.142.2
 prometheus-client==0.26.0
 pydantic-settings==2.15.0

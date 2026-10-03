@@ -10,7 +10,7 @@ export PRE_COMMIT_HOME := $(CURDIR)/.cache/pre-commit
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup format lint format-check typecheck test validate api-dev api-lock dashboard-install dashboard-dev dashboard-check up down logs check hooks clean
+.PHONY: help setup format lint format-check typecheck test test-kafka validate api-dev consumer-dev api-lock dashboard-install dashboard-dev dashboard-check up down logs check hooks clean
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "StreamPredict development commands\n\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -29,10 +29,16 @@ format-check: ## Verify Python formatting without changing files
 	$(CONDA_RUN) ruff format --check .
 
 typecheck: ## Run strict Python type checking
-	$(CONDA_RUN) mypy tools tests services/api/src
+	$(CONDA_RUN) mypy tools tests services/api/src services/consumer/src
 
-test: ## Run the test suite
+test: ## Run the test suite (Kafka broker tests are skipped)
 	$(CONDA_RUN) pytest
+
+test-kafka: ## Run broker tests against the Compose Kafka (start it first: make up)
+	STREAMPREDICT_TEST_KAFKA=localhost:9092 $(CONDA_RUN) pytest -m kafka
+
+consumer-dev: ## Run a consumer worker locally against Kafka on localhost:9092
+	PYTHONPATH=services/api/src:services/consumer/src $(CONDA_RUN) --no-capture-output $(ENV_PREFIX)/bin/python -m streampredict_consumer
 
 validate: ## Validate repository foundation files and whitespace
 	$(PYTHON) tools/validate_project.py
@@ -55,7 +61,7 @@ dashboard-dev: ## Start the Next.js dashboard locally
 dashboard-check: ## Lint, type-check, and build the dashboard
 	npm --prefix apps/dashboard run check
 
-up: ## Build and start the local stack (Redis, API, dashboard) with Docker Compose
+up: ## Build and start the local stack (Redis, Kafka, API, consumers, dashboard)
 	$(COMPOSE) up --build -d
 
 down: ## Stop the local Docker Compose stack

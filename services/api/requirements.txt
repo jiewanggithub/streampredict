@@ -1,12 +1,15 @@
 # Locked runtime dependencies generated from requirements.in by 'make api-lock'.
+aiokafka==0.14.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
+async-timeout==5.0.1
 click==8.5.0
 fastapi==0.142.2
 h11==0.16.0
 idna==3.20
 opentelemetry-api==1.45.0
+packaging==26.3
 prometheus_client==0.26.0
 pydantic==2.13.5
 pydantic-settings==2.15.0
