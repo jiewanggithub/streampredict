@@ -83,6 +83,7 @@ services:
       DEMO_MAX_DURATION_SECONDS: ${DEMO_MAX_DURATION_SECONDS:-300}
       DEMO_CONTROL_TOKEN: ${DEMO_CONTROL_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      DEPLOYMENT_PLATFORM: docker-compose
     ports:
       - "8000:8000"
     depends_on:

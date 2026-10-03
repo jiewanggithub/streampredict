@@ -24,6 +24,8 @@ class InferenceError(Exception):
 class InferenceClient(Protocol):
     model_name: str
     model_version: str
+    # Serving backend shown on the dashboard, e.g. "mock" or "torchserve".
+    backend: str
 
     async def predict(self, features: PredictionFeatures) -> InferenceResult: ...
 
@@ -47,6 +49,7 @@ class MockInferenceClient:
     def __init__(self, model_name: str, model_version: str, latency_seconds: float = 0.0) -> None:
         self.model_name = model_name
         self.model_version = model_version
+        self.backend = "mock"
         self._latency_seconds = latency_seconds
 
     async def predict(self, features: PredictionFeatures) -> InferenceResult:

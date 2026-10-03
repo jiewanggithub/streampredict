@@ -47,10 +47,27 @@ export type KafkaMetrics = {
   lag_by_partition: { partition: number; lag: number }[];
 };
 
+export type InfrastructureMetrics = {
+  platform: string;
+  status: DependencyStatus;
+  consumer_group: string;
+  group_state: string | null;
+  consumer_replicas: number | null;
+  replicas_history: number[];
+  members: { member_id: string; host: string; partitions: number[] }[];
+};
+
 export type MetricsOverview = {
   generated_at: string;
   window_seconds: number;
-  model: { name: string; version: string };
+  model: {
+    name: string;
+    version: string;
+    backend: string;
+    predictions_in_window: number;
+    error_rate: number | null;
+    label_distribution: Record<RiskLabel, number>;
+  };
   traffic: {
     rps: number;
     rps_history: number[];
@@ -71,7 +88,7 @@ export type MetricsOverview = {
   dependencies: Record<string, DependencyStatus>;
   demo: DemoStatus;
   kafka: KafkaMetrics | null;
-  infrastructure: null;
+  infrastructure: InfrastructureMetrics | null;
 };
 
 export type PredictionFeatures = {

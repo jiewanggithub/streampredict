@@ -398,6 +398,12 @@ async def _build_overview(container: Container) -> MetricsOverview:
         model=ModelInfo(
             name=container.predictions.model_name,
             version=container.predictions.model_version,
+            backend=container.predictions.backend,
+            predictions_in_window=snapshot.requests_in_window,
+            error_rate=None
+            if snapshot.success_rate is None
+            else round(100 - snapshot.success_rate, 3),
+            label_distribution=snapshot.label_counts,
         ),
         traffic=TrafficMetrics(
             rps=snapshot.rps,
@@ -419,6 +425,11 @@ async def _build_overview(container: Container) -> MetricsOverview:
         dependencies=await _dependency_checks(container),
         demo=container.demo.status(),
         kafka=container.kafka_monitor.overview() if container.kafka_monitor else None,
+        infrastructure=container.kafka_monitor.infrastructure(
+            container.settings.deployment_platform
+        )
+        if container.kafka_monitor
+        else None,
     )
 
 

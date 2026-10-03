@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     metrics_stream_max_seconds: float = Field(default=300.0, gt=0, le=3_600)
 
     # Empty disables the event pipeline: /api/v1/events answers 503 and readiness omits Kafka.
+    # Shown on the dashboard's infrastructure panel: local, docker-compose, kubernetes.
+    deployment_platform: str = "local"
+
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_prediction_topic: str = "prediction-events"
     kafka_result_topic: str = "prediction-results"

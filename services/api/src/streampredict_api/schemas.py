@@ -143,6 +143,32 @@ class KafkaMetrics(BaseModel):
 class ModelInfo(BaseModel):
     name: str
     version: str
+    backend: str
+    predictions_in_window: int
+    error_rate: float | None = Field(description="Percent of predictions that failed (window).")
+    label_distribution: dict[RiskLabel, int]
+
+
+class ConsumerMember(BaseModel):
+    member_id: str
+    host: str
+    partitions: list[int]
+
+
+class InfrastructureMetrics(BaseModel):
+    """What the gateway can observe about the deployment today.
+
+    Consumer replicas come from the Kafka group membership, so they are real on any platform. Pod
+    CPU, memory, and HPA events need the Kubernetes deployment (M9) and are not reported yet.
+    """
+
+    platform: str
+    status: DependencyStatus
+    consumer_group: str
+    group_state: str | None
+    consumer_replicas: int | None
+    replicas_history: list[int]
+    members: list[ConsumerMember]
 
 
 class MetricsOverview(BaseModel):
@@ -155,8 +181,8 @@ class MetricsOverview(BaseModel):
     demo: DemoStatus
     # None when the event pipeline is disabled (KAFKA_BOOTSTRAP_SERVERS is empty).
     kafka: KafkaMetrics | None = None
-    # Populated once the Kubernetes deployment (Phase 4) exists.
-    infrastructure: None = None
+    # None when the event pipeline is disabled; consumer replicas are read from Kafka.
+    infrastructure: InfrastructureMetrics | None = None
 
 
 class ErrorBody(BaseModel):

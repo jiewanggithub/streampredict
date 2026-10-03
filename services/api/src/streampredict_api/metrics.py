@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
-from .schemas import CacheStatus
+from .schemas import CacheStatus, RiskLabel
 
 LATENCY_BUCKETS = (0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1, 2.5)
 CACHE_BUCKETS = (0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1)
@@ -34,6 +34,12 @@ class PredictionMetrics:
             "End-to-end prediction duration including cache lookup.",
             ["source"],
             buckets=LATENCY_BUCKETS,
+            registry=self.registry,
+        )
+        self.prediction_labels = Counter(
+            "streampredict_prediction_labels_total",
+            "Successful predictions by predicted label (the model's output distribution).",
+            ["source", "label"],
             registry=self.registry,
         )
         self.cache_duration = Histogram(
@@ -126,6 +132,7 @@ class PredictionSample:
     latency_ms: float
     success: bool
     cache: CacheStatus
+    label: RiskLabel | None
 
 
 @dataclass(frozen=True)
@@ -142,6 +149,7 @@ class WindowSnapshot:
     miss_rate: float | None
     bypass_count: int
     lookup_p95_ms: float | None
+    label_counts: dict[RiskLabel, int]
 
 
 def percentile(values: list[float], fraction: float) -> float | None:
@@ -171,8 +179,14 @@ class RollingWindow:
         self._predictions: deque[PredictionSample] = deque(maxlen=max_samples)
         self._cache_lookups: deque[tuple[float, float]] = deque(maxlen=max_samples)
 
-    def record_prediction(self, latency_ms: float, success: bool, cache: CacheStatus) -> None:
-        self._predictions.append(PredictionSample(self._clock(), latency_ms, success, cache))
+    def record_prediction(
+        self,
+        latency_ms: float,
+        success: bool,
+        cache: CacheStatus,
+        label: RiskLabel | None = None,
+    ) -> None:
+        self._predictions.append(PredictionSample(self._clock(), latency_ms, success, cache, label))
 
     def record_cache_lookup(self, latency_ms: float) -> None:
         self._cache_lookups.append((self._clock(), latency_ms))
@@ -203,6 +217,10 @@ class RollingWindow:
         bypass = sum(1 for sample in samples if sample.cache == "bypass")
         lookups = [latency for _, latency in self._cache_lookups]
         cacheable = hits + misses
+        label_counts: dict[RiskLabel, int] = {"low_risk": 0, "review": 0, "high_risk": 0}
+        for sample in samples:
+            if sample.label is not None:
+                label_counts[sample.label] += 1
 
         return WindowSnapshot(
             rps=round(recent / rps_seconds, 2),
@@ -219,4 +237,5 @@ class RollingWindow:
             miss_rate=round(100 * misses / cacheable, 2) if cacheable else None,
             bypass_count=bypass,
             lookup_p95_ms=percentile(lookups, 0.95),
+            label_counts=label_counts,
         )

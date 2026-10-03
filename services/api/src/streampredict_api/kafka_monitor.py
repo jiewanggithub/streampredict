@@ -16,18 +16,28 @@ from typing import Any, Protocol
 
 from aiokafka import AIOKafkaConsumer, TopicPartition
 from aiokafka.admin import AIOKafkaAdminClient
+from aiokafka.coordinator.protocol import ConsumerProtocolMemberAssignment
 from aiokafka.errors import KafkaError
 
 from .metrics import ApiMetrics
-from .schemas import KafkaMetrics, PartitionLag
+from .schemas import ConsumerMember, InfrastructureMetrics, KafkaMetrics, PartitionLag
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class GroupMember:
+    member_id: str
+    host: str
+    partitions: tuple[int, ...]
 
 
 @dataclass(frozen=True)
 class OffsetSnapshot:
     end: dict[int, int]
     committed: dict[int, int]
+    group_state: str | None = None
+    members: tuple[GroupMember, ...] = ()
 
     def lag_by_partition(self) -> dict[int, int]:
         # Partitions without a committed offset are fully unconsumed (auto_offset_reset=earliest).
@@ -84,12 +94,38 @@ class KafkaOffsetSource:
         partitions = [TopicPartition(self._topic, p["partition"]) for p in topic["partitions"]]
         end = await consumer.end_offsets(partitions)
         committed = await admin.list_consumer_group_offsets(self._group_id, partitions=partitions)
+        state, members = await self._describe_group(admin)
         return OffsetSnapshot(
             end={tp.partition: offset for tp, offset in end.items()},
             committed={
                 tp.partition: meta.offset for tp, meta in committed.items() if meta.offset >= 0
             },
+            group_state=state,
+            members=members,
         )
+
+    async def _describe_group(
+        self, admin: AIOKafkaAdminClient
+    ) -> tuple[str | None, tuple[GroupMember, ...]]:
+        (response,) = await admin.describe_consumer_groups([self._group_id])
+        group = response.to_object()["groups"][0]
+        if group["error_code"]:
+            return None, ()
+        members = []
+        for member in group["members"]:
+            assignment = ConsumerProtocolMemberAssignment.decode(member["member_assignment"])
+            partitions = sorted(
+                tp.partition for tp in assignment.partitions() if tp.topic == self._topic
+            )
+            members.append(
+                GroupMember(
+                    # Member IDs are client_id + UUID; the last UUID group tells them apart.
+                    member_id=member["member_id"].rsplit("-", 1)[-1][:12],
+                    host=member["client_host"].lstrip("/"),
+                    partitions=tuple(partitions),
+                )
+            )
+        return group["state"], tuple(sorted(members, key=lambda m: m.partitions[:1] or (1 << 31,)))
 
     async def close(self) -> None:
         if self._consumer is not None:
@@ -105,6 +141,7 @@ class _Sample:
     end_total: int
     committed_total: int
     lag: int
+    replicas: int
 
 
 class KafkaMonitor:
@@ -170,7 +207,11 @@ class KafkaMonitor:
         self._available = True
         self._samples.append(
             _Sample(
-                self._clock(), sum(snapshot.end.values()), sum(snapshot.committed.values()), lag
+                self._clock(),
+                sum(snapshot.end.values()),
+                sum(snapshot.committed.values()),
+                lag,
+                len(snapshot.members),
             )
         )
         self._metrics.kafka_consumer_lag.set(lag)
@@ -202,6 +243,23 @@ class KafkaMonitor:
             lag_by_partition=[
                 PartitionLag(partition=p, lag=lag)
                 for p, lag in sorted(latest.lag_by_partition().items())
+            ]
+            if latest
+            else [],
+        )
+
+    def infrastructure(self, platform: str) -> InfrastructureMetrics:
+        latest = self._latest if self._available else None
+        return InfrastructureMetrics(
+            platform=platform,
+            status="ok" if latest is not None else "unavailable",
+            consumer_group=self._group,
+            group_state=latest.group_state if latest else None,
+            consumer_replicas=len(latest.members) if latest else None,
+            replicas_history=[sample.replicas for sample in self._samples],
+            members=[
+                ConsumerMember(member_id=m.member_id, host=m.host, partitions=list(m.partitions))
+                for m in latest.members
             ]
             if latest
             else [],

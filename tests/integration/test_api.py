@@ -5,7 +5,7 @@ import time
 
 from fastapi.testclient import TestClient
 
-from streampredict_api.kafka_monitor import OffsetSnapshot
+from streampredict_api.kafka_monitor import GroupMember, OffsetSnapshot
 from tests.conftest import ClientFactory, FakeOffsetSource, FakePublisher, fake_kafka
 
 PAYLOAD = {"features": {"amount": 860, "events_per_hour": 4, "distance_km": 120}}
@@ -90,7 +90,14 @@ def test_overview_and_prometheus_metrics(client: TestClient) -> None:
     client.post("/api/v1/predict", json=PAYLOAD)
 
     overview = client.get("/api/v1/metrics/overview").json()
-    assert overview["model"] == {"name": "streampredict-demo", "version": "v-test"}
+    assert overview["model"] == {
+        "name": "streampredict-demo",
+        "version": "v-test",
+        "backend": "mock",
+        "predictions_in_window": 2,
+        "error_rate": 0.0,
+        "label_distribution": {"low_risk": 2, "review": 0, "high_risk": 0},
+    }
     assert overview["traffic"]["requests_in_window"] == 2
     assert overview["traffic"]["success_rate"] == 100.0
     assert overview["cache"]["hit_rate"] == 50.0
@@ -104,6 +111,8 @@ def test_overview_and_prometheus_metrics(client: TestClient) -> None:
     )
     assert f"{hit_series} 1.0" in metrics
     assert f"{model_series} 1.0" in metrics
+    label_series = 'streampredict_prediction_labels_total{label="low_risk",source="api"}'
+    assert f"{label_series} 2.0" in metrics
     assert 'route="/api/v1/predict"' in metrics
 
 
@@ -224,9 +233,18 @@ def test_events_disabled_without_bootstrap_servers(client: TestClient) -> None:
     assert "kafka" not in client.get("/ready").json()["checks"]
 
 
-def test_overview_includes_kafka_lag(make_client: ClientFactory) -> None:
-    source = FakeOffsetSource([OffsetSnapshot(end={0: 120, 1: 80}, committed={0: 100})])
-    client = make_client(kafka=fake_kafka(FakePublisher(), source))
+def test_overview_includes_kafka_lag_and_consumer_replicas(make_client: ClientFactory) -> None:
+    members = (
+        GroupMember(member_id="aaa", host="10.0.0.2", partitions=(0,)),
+        GroupMember(member_id="bbb", host="10.0.0.3", partitions=(1,)),
+    )
+    snapshot = OffsetSnapshot(
+        end={0: 120, 1: 80}, committed={0: 100}, group_state="Stable", members=members
+    )
+    client = make_client(
+        kafka=fake_kafka(FakePublisher(), FakeOffsetSource([snapshot])),
+        deployment_platform="docker-compose",
+    )
 
     kafka = client.get("/api/v1/metrics/overview").json()["kafka"]
 
@@ -235,6 +253,17 @@ def test_overview_includes_kafka_lag(make_client: ClientFactory) -> None:
     assert kafka["lag"] == 100
     assert kafka["lag_by_partition"] == [{"partition": 0, "lag": 20}, {"partition": 1, "lag": 80}]
     assert "streampredict_kafka_consumer_lag 100.0" in client.get("/metrics").text
+
+    infrastructure = client.get("/api/v1/metrics/overview").json()["infrastructure"]
+    assert infrastructure["platform"] == "docker-compose"
+    assert infrastructure["group_state"] == "Stable"
+    assert infrastructure["consumer_replicas"] == 2
+    assert infrastructure["replicas_history"] == [2]
+    assert infrastructure["members"][1] == {
+        "member_id": "bbb",
+        "host": "10.0.0.3",
+        "partitions": [1],
+    }
 
 
 def test_demo_events_channel_publishes_to_kafka(make_client: ClientFactory) -> None:

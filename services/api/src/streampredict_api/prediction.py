@@ -9,7 +9,7 @@ from .cache import PredictionCache, prediction_key
 from .errors import AppError
 from .inference import InferenceClient, InferenceError, InferenceResult
 from .metrics import PredictionMetrics, RollingWindow
-from .schemas import CacheStatus, PredictionFeatures
+from .schemas import CacheStatus, PredictionFeatures, RiskLabel
 
 TrafficSource = Literal["api", "demo", "consumer"]
 
@@ -48,6 +48,10 @@ class PredictionService:
     def model_version(self) -> str:
         return self._inference.model_version
 
+    @property
+    def backend(self) -> str:
+        return self._inference.backend
+
     async def predict(
         self, features: PredictionFeatures, source: TrafficSource = "api"
     ) -> PredictionOutcome:
@@ -73,7 +77,7 @@ class PredictionService:
             raise
         finally:
             self._in_flight -= 1
-        latency_ms = self._record(source, cache_status, started, success=True)
+        latency_ms = self._record(source, cache_status, started, success=True, label=result.label)
         return PredictionOutcome(result=result, cache=cache_status, latency_ms=latency_ms)
 
     async def _infer_once(self, key: str, features: PredictionFeatures) -> InferenceResult:
@@ -105,15 +109,22 @@ class PredictionService:
                 future.exception()
 
     def _record(
-        self, source: TrafficSource, cache: CacheStatus, started: float, success: bool
+        self,
+        source: TrafficSource,
+        cache: CacheStatus,
+        started: float,
+        success: bool,
+        label: RiskLabel | None = None,
     ) -> float:
         elapsed = time.perf_counter() - started
         outcome = "success" if success else "error"
         self._metrics.predictions.labels(source, cache, outcome).inc()
         if success:
             self._metrics.prediction_duration.labels(source).observe(elapsed)
+        if label is not None:
+            self._metrics.prediction_labels.labels(source, label).inc()
         if self._window is not None:
-            self._window.record_prediction(elapsed * 1000, success, cache)
+            self._window.record_prediction(elapsed * 1000, success, cache, label)
         return round(elapsed * 1000, 2)
 
     async def ready(self) -> bool:

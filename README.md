@@ -107,8 +107,8 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 - [x] 实时指标：展示 RPS、p50/p95/p99 latency、success rate。
 - [x] Kafka 面板：展示 incoming events、consumer throughput 和 consumer lag。
 - [ ] Redis 面板：展示 cache hit rate、miss rate 和 lookup latency。
-- [ ] Model 面板：展示 Champion / Challenger、版本、错误率和回滚事件。
-- [ ] Infrastructure 面板：展示 Pod 数量、CPU、内存和 HPA scaling events。
+- [ ] Model 面板：展示 Champion / Challenger、版本、错误率和回滚事件。（已展示版本、后端、错误率与预测分布；Champion / Challenger 与回滚依赖 M6）
+- [ ] Infrastructure 面板：展示 Pod 数量、CPU、内存和 HPA scaling events。（已展示 Consumer 副本数、分区分配与扩缩容事件；Pod CPU / 内存与 HPA 依赖 M9）
 - [x] 使用 SSE 或 WebSocket 接收实时更新；轮询可作为第一版实现。
 - [x] 提供加载、空数据、断线、错误和 Demo 完成状态。
 

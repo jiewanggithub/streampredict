@@ -9,6 +9,7 @@ const SPARKLINE_POINTS = 30;
 const ACTIVE_STATES = new Set(["starting", "running", "cooling_down"]);
 
 const RISK_LABELS: Record<RiskLabel, string> = { low_risk: "Low risk", review: "Review", high_risk: "High risk" };
+const LABEL_ORDER: RiskLabel[] = ["low_risk", "review", "high_risk"];
 
 type Tone = "info" | "success" | "warning";
 type EventItem = { id: number; time: string; tone: Tone; message: string };
@@ -81,21 +82,6 @@ function ServiceNode({ name, detail, status }: { name: string; detail: string; s
   );
 }
 
-function PendingPanel({ kicker, title, phase, children }: { kicker: string; title: string; phase: string; children: React.ReactNode }) {
-  return (
-    <article className="panel detail-panel pending-panel">
-      <div className="panel-heading">
-        <div>
-          <span className="section-kicker">{kicker}</span>
-          <h2>{title}</h2>
-        </div>
-        <span className="mono">{phase}</span>
-      </div>
-      <p className="empty-state">{children}</p>
-    </article>
-  );
-}
-
 export function StreamPredictDashboard() {
   const [overview, setOverview] = useState<MetricsOverview | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -107,7 +93,7 @@ export function StreamPredictDashboard() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [transport, setTransport] = useState<"sse" | "polling">("sse");
   const eventId = useRef(0);
-  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; demoState?: string; sessionId?: string | null }>({ connected: null });
+  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; replicas?: number; demoState?: string; sessionId?: string | null }>({ connected: null });
 
   const addEvent = useCallback((message: string, tone: Tone = "info") => {
     eventId.current += 1;
@@ -119,6 +105,10 @@ export function StreamPredictDashboard() {
     (next: MetricsOverview) => {
       const prev = previous.current;
       if (prev.connected !== true) addEvent(`Connected to API · serving ${next.model.name} ${next.model.version}`, "success");
+      const replicas = next.infrastructure?.consumer_replicas ?? undefined;
+      if (prev.replicas !== undefined && replicas !== undefined && replicas !== prev.replicas) {
+        addEvent(`Consumer replicas ${prev.replicas} → ${replicas}; partitions rebalanced`, replicas > prev.replicas ? "success" : "info");
+      }
       const kafkaState = next.kafka?.status;
       if (prev.kafka && kafkaState && prev.kafka !== kafkaState) {
         if (kafkaState === "ok") addEvent("Kafka reachable; async events flowing", "success");
@@ -136,7 +126,7 @@ export function StreamPredictDashboard() {
           addEvent(`Demo completed · ${demo.summary.total_requests} requests, peak ${demo.summary.peak_rps} RPS, ${demo.summary.errors} errors`, "success");
         if (demo.state === "failed") addEvent(`Demo ended early (${demo.stop_reason ?? "unknown"})`, "warning");
       }
-      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, demoState: demo.state, sessionId: demo.session_id };
+      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, replicas: replicas ?? prev.replicas, demoState: demo.state, sessionId: demo.session_id };
       setOverview(next);
       setConnectionError(null);
     },
@@ -249,6 +239,9 @@ export function StreamPredictDashboard() {
   const cache = overview?.cache;
   const redisStatus: NodeStatus = !connected ? "pending" : overview.dependencies.redis === "ok" ? "healthy" : "degraded";
   const kafka = overview?.kafka ?? null;
+  const infra = overview?.infrastructure ?? null;
+  const model = overview?.model ?? null;
+  const labelTotal = model ? LABEL_ORDER.reduce((sum, label) => sum + model.label_distribution[label], 0) : 0;
   const eventsDemo = active && overview?.demo.channel === "events";
   const kafkaStatus: NodeStatus = !connected || !kafka ? "pending" : kafka.status === "ok" ? "healthy" : "degraded";
   const kafkaDetail = !kafka ? "disabled" : kafka.status === "ok" ? `lag ${fmt(kafka.lag, "", 0)}` : "unreachable";
@@ -358,7 +351,7 @@ export function StreamPredictDashboard() {
             <span className="flow-arrow">→</span>
             <ServiceNode name="Redis" detail={connected ? `${fmt(cache?.hit_rate, "% hit")}` : "unknown"} status={redisStatus} />
             <span className="flow-arrow">→</span>
-            <ServiceNode name="Inference" detail={overview ? `mock · ${overview.model.version}` : "unknown"} status={connected && overview.dependencies.inference === "ok" ? "healthy" : "pending"} />
+            <ServiceNode name="Inference" detail={overview ? `${overview.model.backend} · ${overview.model.version}` : "unknown"} status={connected && overview.dependencies.inference === "ok" ? "healthy" : "pending"} />
             <span className="flow-arrow">→</span>
             <ServiceNode name="Kafka" detail={kafkaDetail} status={kafkaStatus} />
             <span className="flow-arrow">→</span>
@@ -543,19 +536,42 @@ export function StreamPredictDashboard() {
               <span className="section-kicker">MODEL CONTROL</span>
               <h2>Serving model</h2>
             </div>
-            <span className="model-chip">{overview?.model.version ?? "—"}</span>
+            <span className="model-chip">{model?.version ?? "—"}</span>
           </div>
-          <div className="model-row">
+          <div className="detail-stats">
             <div>
               <span>Model</span>
-              <strong>{overview?.model.name ?? "—"}</strong>
+              <strong title={model?.name}>{model?.name ?? "—"}</strong>
             </div>
             <div>
               <span>Backend</span>
-              <strong>mock</strong>
+              <strong>{model?.backend ?? "—"}</strong>
+            </div>
+            <div>
+              <span>Error rate</span>
+              <strong>{fmt(model?.error_rate, "%", 2)}</strong>
             </div>
           </div>
-          <p className="empty-state">Champion / Challenger promotion and health-gated rollback arrive with MLflow in Phase 3.</p>
+          {labelTotal > 0 && model ? (
+            <>
+              <div className="label-bar" role="img" aria-label="Prediction label distribution over the last 60 seconds">
+                {LABEL_ORDER.map((label) =>
+                  model.label_distribution[label] ? <i key={label} className={label} style={{ flexGrow: model.label_distribution[label] }} /> : null,
+                )}
+              </div>
+              <div className="label-legend">
+                {LABEL_ORDER.map((label) => (
+                  <span key={label}>
+                    <i className={label} />
+                    {RISK_LABELS[label]} {fmt((100 * model.label_distribution[label]) / labelTotal, "%", 0)}
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="empty-state">The prediction distribution appears once this gateway serves predictions.</p>
+          )}
+          <small className="panel-note">Champion / Challenger and health-gated rollback arrive with MLflow (M6).</small>
         </article>
 
         <article className="panel detail-panel">
@@ -594,9 +610,48 @@ export function StreamPredictDashboard() {
           )}
         </article>
 
-        <PendingPanel kicker="INFRASTRUCTURE" title="Autoscaling" phase="Phase 4">
-          Pod counts, CPU, and HPA scaling events appear here once the stack runs on Kubernetes.
-        </PendingPanel>
+        <article className="panel detail-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">INFRASTRUCTURE</span>
+              <h2>Consumer replicas</h2>
+            </div>
+            <span className="mono">{infra?.platform ?? "—"}</span>
+          </div>
+          {infra?.status === "ok" ? (
+            <>
+              <div className="detail-stats">
+                <div>
+                  <span>Replicas</span>
+                  <strong>{infra.consumer_replicas ?? "—"}</strong>
+                </div>
+                <div>
+                  <span>Group state</span>
+                  <strong>{infra.group_state ?? "—"}</strong>
+                </div>
+                <div>
+                  <span>Partitions</span>
+                  <strong>{kafka?.partitions ?? "—"}</strong>
+                </div>
+              </div>
+              {infra.members.length ? (
+                <ul className="member-list">
+                  {infra.members.map((member) => (
+                    <li key={member.member_id}>
+                      <span className="mono-text">{member.host}</span>
+                      <span>{member.partitions.length} partitions</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-state">No consumers are in the group; events queue up in Kafka until one joins.</p>
+              )}
+            </>
+          ) : (
+            <p className="empty-state">{infra ? "Kafka is unreachable, so consumer membership is unknown." : "Consumer replicas are read from Kafka, which is disabled."}</p>
+          )}
+          <small className="panel-note">Pod CPU, memory, and HPA scaling events arrive with Kubernetes (M9).</small>
+        </article>
 
         <article className="panel event-panel">
           <div className="panel-heading">
