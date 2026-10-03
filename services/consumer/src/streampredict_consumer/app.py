@@ -58,6 +58,7 @@ def build_worker(
         max_attempts=settings.consumer_max_attempts,
         retry_backoff_seconds=settings.consumer_retry_backoff_seconds,
         concurrency=settings.consumer_concurrency,
+        simulated_work_seconds=settings.consumer_simulated_work_ms / 1000,
     )
     return KafkaWorker(settings, processor, idempotency, metrics)
 

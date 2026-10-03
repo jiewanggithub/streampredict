@@ -16,6 +16,9 @@ class ConsumerSettings(Settings):
     consumer_retry_backoff_seconds: float = Field(default=0.2, ge=0, le=30)
     consumer_idempotency_ttl_seconds: int = Field(default=86_400, ge=60, le=7 * 86_400)
     consumer_metrics_port: int = Field(default=9102, ge=1, le=65_535)
+    # Demo knob: extra per-event processing time standing in for a slow downstream dependency
+    # (e.g. feature enrichment), so a traffic spike builds lag that autoscaling must absorb.
+    consumer_simulated_work_ms: float = Field(default=0, ge=0, le=5_000)
 
 
 @lru_cache

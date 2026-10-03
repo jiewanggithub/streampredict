@@ -79,6 +79,7 @@ class EventProcessor:
         max_attempts: int,
         retry_backoff_seconds: float,
         concurrency: int,
+        simulated_work_seconds: float = 0.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._predictions = predictions
@@ -89,6 +90,7 @@ class EventProcessor:
         self._max_attempts = max_attempts
         self._backoff = retry_backoff_seconds
         self._semaphore = asyncio.Semaphore(concurrency)
+        self._simulated_work = simulated_work_seconds
         self._sleep = sleep
 
     async def process_batch(self, records: list[InboundRecord]) -> BatchOutcome:
@@ -136,6 +138,8 @@ class EventProcessor:
         async with self._semaphore:
             started = time.perf_counter()
             try:
+                if self._simulated_work:
+                    await asyncio.sleep(self._simulated_work)
                 return await self._predict_with_retries(event)
             finally:
                 self._metrics.event_duration.observe(time.perf_counter() - started)
