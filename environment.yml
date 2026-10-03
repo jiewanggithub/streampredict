@@ -12,4 +12,6 @@ dependencies:
       - pytest>=8.4,<9
       - ruff>=0.14,<1
       - -r services/api/requirements-dev.txt
+      - -r services/model-serving/requirements.txt
+      - -r ml/requirements.txt
 

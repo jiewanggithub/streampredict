@@ -14,7 +14,7 @@ extend-exclude = [".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv"
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["streampredict_api", "streampredict_consumer", "tests", "tools"]
+known-first-party = ["ml", "streampredict_api", "streampredict_consumer", "streampredict_serving", "tests", "tools"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -27,17 +27,17 @@ strict = true
 pretty = true
 show_error_codes = true
 exclude = ["^build/", "^dist/", "^node_modules/"]
-mypy_path = ["services/api/src", "services/consumer/src"]
+mypy_path = ["services/api/src", "services/consumer/src", "services/model-serving/src"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-# aiokafka ships no type information.
-module = ["aiokafka", "aiokafka.*"]
+# aiokafka and onnxruntime ship no type information.
+module = ["aiokafka", "aiokafka.*", "onnxruntime", "onnxruntime.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
-pythonpath = [".", "services/api/src", "services/consumer/src"]
+pythonpath = [".", "services/api/src", "services/consumer/src", "services/model-serving/src"]
 markers = [
     "kafka: needs a running broker; set STREAMPREDICT_TEST_KAFKA=localhost:9092 (make test-kafka)",
 ]

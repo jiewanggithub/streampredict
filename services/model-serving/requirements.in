@@ -1,0 +1,8 @@
+# Direct runtime dependencies for the model-serving service. Regenerate requirements.txt after changes:
+#   make serving-lock
+fastapi==0.142.2
+numpy==2.4.6
+onnxruntime==1.30.0
+prometheus-client==0.26.0
+pydantic-settings==2.15.0
+uvicorn==0.54.0

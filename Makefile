@@ -10,7 +10,7 @@ export PRE_COMMIT_HOME := $(CURDIR)/.cache/pre-commit
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup format lint format-check typecheck test test-kafka validate api-dev consumer-dev api-lock dashboard-install dashboard-dev dashboard-check up down logs check hooks clean
+.PHONY: help setup format lint format-check typecheck test test-kafka validate api-dev consumer-dev serving-dev serving-lock train api-lock dashboard-install dashboard-dev dashboard-check up down logs check hooks clean
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "StreamPredict development commands\n\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -29,7 +29,7 @@ format-check: ## Verify Python formatting without changing files
 	$(CONDA_RUN) ruff format --check .
 
 typecheck: ## Run strict Python type checking
-	$(CONDA_RUN) mypy tools tests services/api/src services/consumer/src
+	$(CONDA_RUN) mypy tools tests ml services/api/src services/consumer/src services/model-serving/src
 
 test: ## Run the test suite (Kafka broker tests are skipped)
 	$(CONDA_RUN) pytest
@@ -51,6 +51,18 @@ api-lock: ## Regenerate services/api/requirements.txt from requirements.in
 	rm -rf .cache/api-lock && $(PYTHON) -m venv .cache/api-lock
 	.cache/api-lock/bin/pip install -q -r services/api/requirements.in
 	{ echo "# Locked runtime dependencies generated from requirements.in by 'make api-lock'."; .cache/api-lock/bin/pip freeze; } > services/api/requirements.txt
+
+serving-dev: ## Start the model-serving service on :8001 with the committed model repository
+	cd services/model-serving && SERVING_MODEL_REPOSITORY=model_repository PYTHONPATH=src $(CONDA_RUN) --no-capture-output $(ENV_PREFIX)/bin/python -m uvicorn --factory streampredict_serving.server:app_factory --port 8001
+
+serving-lock: ## Regenerate services/model-serving/requirements.txt from requirements.in
+	rm -rf .cache/serving-lock && $(PYTHON) -m venv .cache/serving-lock
+	.cache/serving-lock/bin/pip install -q -r services/model-serving/requirements.in
+	{ echo "# Locked runtime dependencies generated from requirements.in by 'make serving-lock'."; .cache/serving-lock/bin/pip freeze; } > services/model-serving/requirements.txt
+
+train: ## Retrain the demo model versions into the serving model repository
+	$(PYTHON) -m ml.training.train --version 1 --profile baseline
+	$(PYTHON) -m ml.training.train --version 2 --profile improved
 
 dashboard-install: ## Install dashboard dependencies
 	npm --prefix apps/dashboard install
