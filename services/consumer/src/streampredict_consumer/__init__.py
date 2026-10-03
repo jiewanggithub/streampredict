@@ -1,0 +1,1 @@
+"""StreamPredict Kafka consumer workers."""
