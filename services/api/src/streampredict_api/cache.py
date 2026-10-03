@@ -19,7 +19,7 @@ from redis.backoff import NoBackoff
 from redis.exceptions import RedisError
 
 from .inference import InferenceResult, label_for
-from .metrics import ApiMetrics, RollingWindow
+from .metrics import PredictionMetrics, RollingWindow
 from .schemas import CacheStatus, PredictionFeatures
 
 logger = logging.getLogger(__name__)
@@ -64,8 +64,8 @@ class PredictionCache:
         ttl_seconds: int,
         timeout_seconds: float,
         circuit_open_seconds: float,
-        metrics: ApiMetrics,
-        window: RollingWindow,
+        metrics: PredictionMetrics,
+        window: RollingWindow | None = None,
     ) -> None:
         self._client = client
         self._ttl_seconds = ttl_seconds
@@ -102,7 +102,7 @@ class PredictionCache:
             raise CacheUnavailable from exc
         elapsed = time.perf_counter() - started
         self._metrics.cache_duration.labels(operation).observe(elapsed)
-        if operation == "get":
+        if operation == "get" and self._window is not None:
             self._window.record_cache_lookup(elapsed * 1000)
         return result
 

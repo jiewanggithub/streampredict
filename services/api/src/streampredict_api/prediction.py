@@ -8,10 +8,10 @@ from typing import Literal
 from .cache import PredictionCache, prediction_key
 from .errors import AppError
 from .inference import InferenceClient, InferenceError, InferenceResult
-from .metrics import ApiMetrics, RollingWindow
+from .metrics import PredictionMetrics, RollingWindow
 from .schemas import CacheStatus, PredictionFeatures
 
-TrafficSource = Literal["api", "demo"]
+TrafficSource = Literal["api", "demo", "consumer"]
 
 
 @dataclass(frozen=True)
@@ -26,8 +26,8 @@ class PredictionService:
         self,
         cache: PredictionCache,
         inference: InferenceClient,
-        metrics: ApiMetrics,
-        window: RollingWindow,
+        metrics: PredictionMetrics,
+        window: RollingWindow | None,
         inference_timeout_seconds: float,
         max_in_flight: int,
     ) -> None:
@@ -112,7 +112,8 @@ class PredictionService:
         self._metrics.predictions.labels(source, cache, outcome).inc()
         if success:
             self._metrics.prediction_duration.labels(source).observe(elapsed)
-        self._window.record_prediction(elapsed * 1000, success, cache)
+        if self._window is not None:
+            self._window.record_prediction(elapsed * 1000, success, cache)
         return round(elapsed * 1000, 2)
 
     async def ready(self) -> bool:

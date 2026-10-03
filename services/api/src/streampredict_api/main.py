@@ -22,7 +22,14 @@ from .cache import PredictionCache, build_redis
 from .config import Settings, get_settings
 from .demo import DemoOrchestrator
 from .errors import AppError, register_error_handlers
+from .events import (
+    DisabledEventPublisher,
+    EventPublisher,
+    KafkaEventPublisher,
+    new_event,
+)
 from .inference import InferenceClient, MockInferenceClient
+from .kafka_monitor import KafkaMonitor, KafkaOffsetSource
 from .logs import configure_logging, request_id_var
 from .metrics import ApiMetrics, RollingWindow
 from .prediction import PredictionService
@@ -32,6 +39,8 @@ from .schemas import (
     DemoStatus,
     DependencyStatus,
     ErrorResponse,
+    EventAccepted,
+    EventRequest,
     HealthResponse,
     MetricsOverview,
     ModelInfo,
@@ -48,6 +57,7 @@ VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 RedisFactory = Callable[[Settings], Redis]
 InferenceFactory = Callable[[Settings], InferenceClient]
+KafkaFactory = Callable[[Settings, ApiMetrics], tuple[EventPublisher, KafkaMonitor | None]]
 
 
 @dataclass
@@ -58,6 +68,8 @@ class Container:
     cache: PredictionCache
     predictions: PredictionService
     demo: DemoOrchestrator
+    publisher: EventPublisher
+    kafka_monitor: KafkaMonitor | None
 
 
 def _default_redis(settings: Settings) -> Redis:
@@ -70,6 +82,34 @@ def _default_inference(settings: Settings) -> InferenceClient:
         settings.model_version,
         latency_seconds=settings.mock_inference_latency_ms / 1000,
     )
+
+
+def _default_kafka(
+    settings: Settings, metrics: ApiMetrics
+) -> tuple[EventPublisher, KafkaMonitor | None]:
+    if not settings.kafka_bootstrap_servers:
+        return DisabledEventPublisher(), None
+    publisher = KafkaEventPublisher(
+        settings.kafka_bootstrap_servers,
+        settings.kafka_prediction_topic,
+        metrics,
+        timeout_seconds=settings.kafka_publish_timeout_seconds,
+        reconnect_interval_seconds=settings.kafka_reconnect_interval_seconds,
+    )
+    source = KafkaOffsetSource(
+        settings.kafka_bootstrap_servers,
+        settings.kafka_prediction_topic,
+        settings.kafka_consumer_group,
+        timeout_seconds=settings.kafka_publish_timeout_seconds,
+    )
+    monitor = KafkaMonitor(
+        source,
+        metrics,
+        topic=settings.kafka_prediction_topic,
+        consumer_group=settings.kafka_consumer_group,
+        timeout_seconds=settings.kafka_publish_timeout_seconds,
+    )
+    return publisher, monitor
 
 
 def get_container(request: Request) -> Container:
@@ -104,6 +144,7 @@ def create_app(
     *,
     redis_factory: RedisFactory = _default_redis,
     inference_factory: InferenceFactory = _default_inference,
+    kafka_factory: KafkaFactory = _default_kafka,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -130,14 +171,22 @@ def create_app(
             inference_timeout_seconds=settings.inference_timeout_seconds,
             max_in_flight=settings.api_max_in_flight_predictions,
         )
+        publisher, kafka_monitor = kafka_factory(settings, metrics)
         demo = DemoOrchestrator(
             predictions,
             metrics,
             max_rps=settings.demo_max_rps,
             max_duration_seconds=settings.demo_max_duration_seconds,
+            publisher=publisher,
         )
         metrics.model_info.labels(inference.model_name, inference.model_version).set(1)
-        app.state.container = Container(settings, metrics, window, cache, predictions, demo)
+        app.state.container = Container(
+            settings, metrics, window, cache, predictions, demo, publisher, kafka_monitor
+        )
+        # Connect in the background; Kafka being down must not block or fail startup.
+        await publisher.ready()
+        if kafka_monitor is not None:
+            kafka_monitor.start()
         logger.info(
             "API gateway started",
             extra={"model_name": inference.model_name, "model_version": inference.model_version},
@@ -146,6 +195,9 @@ def create_app(
             yield
         finally:
             await demo.shutdown()
+            if kafka_monitor is not None:
+                await kafka_monitor.stop()
+            await publisher.close()
             await redis_client.aclose()
             logger.info("API gateway stopped")
 
@@ -214,7 +266,7 @@ def create_app(
         tags=["health"],
     )
     async def ready(container: ContainerDep, response: Response) -> ReadyResponse:
-        """Readiness. Redis loss only degrades caching, so it does not fail readiness."""
+        """Readiness. Redis and Kafka losses degrade caching and async events but do not fail it."""
         checks = await _dependency_checks(container)
         if checks["inference"] != "ok":
             response.status_code = 503
@@ -238,6 +290,31 @@ def create_app(
             score=outcome.result.score,
             cache=outcome.cache,
             latency_ms=outcome.latency_ms,
+        )
+
+    @app.post(
+        "/api/v1/events",
+        response_model=EventAccepted,
+        status_code=202,
+        responses=ERROR_RESPONSES,
+        tags=["predictions"],
+    )
+    async def publish_event(body: EventRequest, container: ContainerDep) -> EventAccepted:
+        """Publish an asynchronous prediction event; the result lands on `prediction-results`."""
+        request_id = request_id_var.get() or str(uuid.uuid4())
+        event = new_event(
+            body.features,
+            request_id=request_id,
+            model_name=container.predictions.model_name,
+            model_version=container.predictions.model_version,
+        )
+        receipt = await container.publisher.publish(event)
+        return EventAccepted(
+            event_id=event.event_id,
+            request_id=request_id,
+            topic=receipt.topic,
+            partition=receipt.partition,
+            offset=receipt.offset,
         )
 
     demo_guard = [Depends(require_demo_token)]
@@ -341,16 +418,20 @@ async def _build_overview(container: Container) -> MetricsOverview:
         ),
         dependencies=await _dependency_checks(container),
         demo=container.demo.status(),
+        kafka=container.kafka_monitor.overview() if container.kafka_monitor else None,
     )
 
 
 async def _dependency_checks(container: Container) -> dict[str, DependencyStatus]:
     redis_ok = await container.cache.ping()
     inference_ok = await container.predictions.ready()
-    return {
+    checks: dict[str, DependencyStatus] = {
         "redis": "ok" if redis_ok else "unavailable",
         "inference": "ok" if inference_ok else "unavailable",
     }
+    if container.settings.kafka_bootstrap_servers:
+        checks["kafka"] = "ok" if await container.publisher.ready() else "unavailable"
+    return checks
 
 
 def app_factory() -> FastAPI:

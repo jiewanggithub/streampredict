@@ -10,6 +10,8 @@ CacheStatus = Literal["hit", "miss", "bypass"]
 DependencyStatus = Literal["ok", "unavailable"]
 DemoState = Literal["idle", "starting", "running", "cooling_down", "completed", "failed"]
 DemoProfile = Literal["standard", "spike"]
+# `sync` calls the prediction path directly; `events` publishes to Kafka for the consumers.
+DemoChannel = Literal["sync", "events"]
 
 
 class PredictionFeatures(BaseModel):
@@ -40,6 +42,20 @@ class PredictResponse(BaseModel):
     latency_ms: float
 
 
+class EventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    features: PredictionFeatures
+
+
+class EventAccepted(BaseModel):
+    event_id: str
+    request_id: str
+    topic: str
+    partition: int
+    offset: int
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"]
 
@@ -53,6 +69,7 @@ class DemoStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     profile: DemoProfile = "spike"
+    channel: DemoChannel = "sync"
     target_rps: int | None = Field(default=None, ge=1, description="Capped by DEMO_MAX_RPS.")
     duration_seconds: int | None = Field(
         default=None, ge=1, description="Capped by DEMO_MAX_DURATION_SECONDS."
@@ -72,6 +89,7 @@ class DemoStatus(BaseModel):
     session_id: str | None
     state: DemoState
     profile: DemoProfile | None
+    channel: DemoChannel | None
     current_target_rps: float
     target_rps: int
     max_rps: int
@@ -105,6 +123,23 @@ class CacheMetrics(BaseModel):
     ttl_seconds: int
 
 
+class PartitionLag(BaseModel):
+    partition: int
+    lag: int
+
+
+class KafkaMetrics(BaseModel):
+    status: DependencyStatus
+    topic: str
+    consumer_group: str
+    partitions: int | None
+    lag: int | None
+    lag_history: list[int]
+    incoming_rate: float | None = Field(description="Events appended to the topic per second.")
+    consumer_rate: float | None = Field(description="Events committed by the group per second.")
+    lag_by_partition: list[PartitionLag]
+
+
 class ModelInfo(BaseModel):
     name: str
     version: str
@@ -118,8 +153,9 @@ class MetricsOverview(BaseModel):
     cache: CacheMetrics
     dependencies: dict[str, DependencyStatus]
     demo: DemoStatus
-    # Populated once the Kafka pipeline (Phase 2) and Kubernetes deployment (Phase 4) exist.
-    kafka: None = None
+    # None when the event pipeline is disabled (KAFKA_BOOTSTRAP_SERVERS is empty).
+    kafka: KafkaMetrics | None = None
+    # Populated once the Kubernetes deployment (Phase 4) exists.
     infrastructure: None = None
 
 

@@ -17,9 +17,11 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from .errors import AppError
+from .events import EventMetadata, EventPublisher, new_event
 from .metrics import ApiMetrics
 from .prediction import PredictionService
 from .schemas import (
+    DemoChannel,
     DemoProfile,
     DemoStartRequest,
     DemoState,
@@ -64,6 +66,7 @@ def synthetic_pool(rng: random.Random, size: int = SYNTHETIC_POOL_SIZE) -> list[
 class _Session:
     session_id: str
     profile: DemoProfile
+    channel: DemoChannel
     target_rps: int
     duration_seconds: int
     started_at: datetime
@@ -96,11 +99,13 @@ class DemoOrchestrator:
         max_rps: int,
         max_duration_seconds: int,
         *,
+        publisher: EventPublisher | None = None,
         tick_seconds: float = 0.1,
         drain_timeout_seconds: float = 5.0,
         max_in_flight: int = 64,
     ) -> None:
         self._predictions = predictions
+        self._publisher = publisher
         self._metrics = metrics
         self._max_rps = max_rps
         self._max_duration = max_duration_seconds
@@ -116,11 +121,18 @@ class DemoOrchestrator:
         async with self._lock:
             if self._session is not None and self._session.state in ACTIVE_STATES:
                 raise AppError(409, "demo_already_running", "A demo session is already active.")
+            if request.channel == "events" and (
+                self._publisher is None or not await self._publisher.ready()
+            ):
+                raise AppError(
+                    503, "kafka_unavailable", "The event pipeline is unavailable for this demo."
+                )
             default_rps = max(1, round(self._max_rps * DEFAULT_RATE_FRACTION[request.profile]))
             duration = request.duration_seconds or DEFAULT_DURATION_SECONDS[request.profile]
             session = _Session(
                 session_id=str(uuid.uuid4()),
                 profile=request.profile,
+                channel=request.channel,
                 target_rps=min(request.target_rps or default_rps, self._max_rps),
                 duration_seconds=min(duration, self._max_duration),
                 started_at=datetime.now(UTC),
@@ -133,6 +145,7 @@ class DemoOrchestrator:
                 extra={
                     "demo_session_id": session.session_id,
                     "profile": session.profile,
+                    "channel": session.channel,
                     "target_rps": session.target_rps,
                     "duration_seconds": session.duration_seconds,
                 },
@@ -163,6 +176,7 @@ class DemoOrchestrator:
                 session_id=None,
                 state="idle",
                 profile=None,
+                channel=None,
                 current_target_rps=0,
                 target_rps=0,
                 max_rps=self._max_rps,
@@ -192,6 +206,7 @@ class DemoOrchestrator:
             session_id=session.session_id,
             state=session.state,
             profile=session.profile,
+            channel=session.channel,
             current_target_rps=round(session.current_target_rps, 2),
             target_rps=session.target_rps,
             max_rps=self._max_rps,
@@ -288,6 +303,9 @@ class DemoOrchestrator:
                 await asyncio.wait_for(session.stop_event.wait(), timeout=self._tick)
 
     async def _one(self, session: _Session, features: PredictionFeatures) -> None:
+        if session.channel == "events":
+            await self._publish_one(session, features)
+            return
         try:
             outcome = await self._predictions.predict(features, source="demo")
         except AppError:
@@ -297,6 +315,22 @@ class DemoOrchestrator:
         if outcome.cache != "bypass":
             session.cache_lookups += 1
             session.cache_hits += outcome.cache == "hit"
+
+    async def _publish_one(self, session: _Session, features: PredictionFeatures) -> None:
+        assert self._publisher is not None
+        event = new_event(
+            features,
+            request_id=str(uuid.uuid4()),
+            model_name=self._predictions.model_name,
+            model_version=self._predictions.model_version,
+            metadata=EventMetadata(source="dashboard-demo", demo_session_id=session.session_id),
+        )
+        try:
+            await self._publisher.publish(event)
+        except AppError:
+            session.errors += 1
+            return
+        session.completed += 1
 
     async def _drain(self) -> None:
         if self._in_flight:

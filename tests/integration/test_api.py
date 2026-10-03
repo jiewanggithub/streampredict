@@ -5,7 +5,8 @@ import time
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import ClientFactory
+from streampredict_api.kafka_monitor import OffsetSnapshot
+from tests.conftest import ClientFactory, FakeOffsetSource, FakePublisher, fake_kafka
 
 PAYLOAD = {"features": {"amount": 860, "events_per_hour": 4, "distance_km": 120}}
 
@@ -179,3 +180,85 @@ def test_metrics_stream_emits_overview_events(make_client: ClientFactory) -> Non
     overview = json.loads(data.removeprefix("data: "))
     assert overview["model"]["version"] == "v-test"
     assert overview["traffic"]["requests_in_window"] == 1
+
+
+def test_events_are_published_with_contract_fields(make_client: ClientFactory) -> None:
+    publisher = FakePublisher()
+    client = make_client(kafka=fake_kafka(publisher))
+
+    response = client.post("/api/v1/events", json=PAYLOAD, headers={"X-Request-ID": "req-1"})
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body == {
+        "event_id": publisher.events[0].event_id,
+        "request_id": "req-1",
+        "topic": "prediction-events",
+        "partition": 0,
+        "offset": 0,
+    }
+    event = publisher.events[0]
+    assert event.schema_version == "1.0"
+    assert event.model_version == "v-test"
+    assert event.features.amount == 860
+    assert event.metadata.source == "api"
+
+
+def test_events_report_unavailable_kafka(make_client: ClientFactory) -> None:
+    client = make_client(kafka=fake_kafka(FakePublisher(available=False)))
+
+    response = client.post("/api/v1/events", json=PAYLOAD)
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "kafka_unavailable"
+    ready = client.get("/ready")
+    assert ready.status_code == 200
+    assert ready.json()["status"] == "degraded"
+    assert ready.json()["checks"]["kafka"] == "unavailable"
+
+
+def test_events_disabled_without_bootstrap_servers(client: TestClient) -> None:
+    response = client.post("/api/v1/events", json=PAYLOAD)
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "events_disabled"
+    assert "kafka" not in client.get("/ready").json()["checks"]
+
+
+def test_overview_includes_kafka_lag(make_client: ClientFactory) -> None:
+    source = FakeOffsetSource([OffsetSnapshot(end={0: 120, 1: 80}, committed={0: 100})])
+    client = make_client(kafka=fake_kafka(FakePublisher(), source))
+
+    kafka = client.get("/api/v1/metrics/overview").json()["kafka"]
+
+    assert kafka["status"] == "ok"
+    assert kafka["partitions"] == 2
+    assert kafka["lag"] == 100
+    assert kafka["lag_by_partition"] == [{"partition": 0, "lag": 20}, {"partition": 1, "lag": 80}]
+    assert "streampredict_kafka_consumer_lag 100.0" in client.get("/metrics").text
+
+
+def test_demo_events_channel_publishes_to_kafka(make_client: ClientFactory) -> None:
+    publisher = FakePublisher()
+    client = make_client(kafka=fake_kafka(publisher), demo_max_rps=30)
+
+    started = client.post(
+        "/api/v1/demo/traffic-spike",
+        json={"profile": "standard", "channel": "events", "duration_seconds": 1},
+    )
+    assert started.status_code == 202
+    assert started.json()["channel"] == "events"
+
+    status = wait_for_state(client, {"completed", "failed"})
+    summary = status["summary"]
+    assert isinstance(summary, dict)
+    assert summary["total_requests"] == len(publisher.events) > 0
+    assert summary["errors"] == 0
+    assert {event.metadata.source for event in publisher.events} == {"dashboard-demo"}
+    assert {event.metadata.demo_session_id for event in publisher.events} == {status["session_id"]}
+
+
+def test_demo_events_channel_requires_kafka(client: TestClient) -> None:
+    response = client.post("/api/v1/demo/traffic-spike", json={"channel": "events"})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "kafka_unavailable"
+    assert client.get("/api/v1/demo/status").json()["state"] == "idle"

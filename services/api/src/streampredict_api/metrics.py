@@ -14,8 +14,8 @@ LATENCY_BUCKETS = (0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.
 CACHE_BUCKETS = (0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1)
 
 
-class ApiMetrics:
-    """Prometheus collectors owned by one application instance.
+class PredictionMetrics:
+    """Collectors for the cache-aside prediction path, shared by the API and the consumer.
 
     Labels are restricted to bounded sets (route templates, status codes, fixed enums) to keep
     series cardinality predictable.
@@ -23,24 +23,6 @@ class ApiMetrics:
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
         self.registry = registry or CollectorRegistry()
-        self.http_requests = Counter(
-            "streampredict_http_requests_total",
-            "HTTP requests handled by the API gateway.",
-            ["method", "route", "status"],
-            registry=self.registry,
-        )
-        self.http_duration = Histogram(
-            "streampredict_http_request_duration_seconds",
-            "HTTP request duration.",
-            ["method", "route"],
-            buckets=LATENCY_BUCKETS,
-            registry=self.registry,
-        )
-        self.http_in_flight = Gauge(
-            "streampredict_http_requests_in_flight",
-            "HTTP requests currently being handled.",
-            registry=self.registry,
-        )
         self.predictions = Counter(
             "streampredict_predictions_total",
             "Predictions served, by traffic source, cache outcome, and result.",
@@ -65,6 +47,31 @@ class ApiMetrics:
             "streampredict_cache_errors_total",
             "Redis cache operations that failed or were skipped by the circuit breaker.",
             ["operation", "reason"],
+            registry=self.registry,
+        )
+
+
+class ApiMetrics(PredictionMetrics):
+    """Prometheus collectors owned by one API application instance."""
+
+    def __init__(self, registry: CollectorRegistry | None = None) -> None:
+        super().__init__(registry)
+        self.http_requests = Counter(
+            "streampredict_http_requests_total",
+            "HTTP requests handled by the API gateway.",
+            ["method", "route", "status"],
+            registry=self.registry,
+        )
+        self.http_duration = Histogram(
+            "streampredict_http_request_duration_seconds",
+            "HTTP request duration.",
+            ["method", "route"],
+            buckets=LATENCY_BUCKETS,
+            registry=self.registry,
+        )
+        self.http_in_flight = Gauge(
+            "streampredict_http_requests_in_flight",
+            "HTTP requests currently being handled.",
             registry=self.registry,
         )
         self.model_info = Gauge(
@@ -92,6 +99,23 @@ class ApiMetrics:
         self.demo_dropped = Counter(
             "streampredict_demo_dropped_requests_total",
             "Synthetic requests skipped because the in-flight limit was reached.",
+            registry=self.registry,
+        )
+        self.events_published = Counter(
+            "streampredict_events_published_total",
+            "Prediction events handed to Kafka, by outcome.",
+            ["outcome"],
+            registry=self.registry,
+        )
+        self.event_publish_duration = Histogram(
+            "streampredict_event_publish_duration_seconds",
+            "Time to get a Kafka acknowledgement for a published event.",
+            buckets=LATENCY_BUCKETS,
+            registry=self.registry,
+        )
+        self.kafka_consumer_lag = Gauge(
+            "streampredict_kafka_consumer_lag",
+            "Unconsumed prediction events for the consumer group, as seen by the gateway.",
             registry=self.registry,
         )
 

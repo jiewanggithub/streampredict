@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     # Streams are recycled so idle tabs cannot hold connections forever; EventSource reconnects.
     metrics_stream_max_seconds: float = Field(default=300.0, gt=0, le=3_600)
 
+    # Empty disables the event pipeline: /api/v1/events answers 503 and readiness omits Kafka.
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_prediction_topic: str = "prediction-events"
+    kafka_result_topic: str = "prediction-results"
+    kafka_dead_letter_topic: str = "prediction-events-dlq"
+    kafka_consumer_group: str = "streampredict-consumers"
+    kafka_publish_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
+    kafka_reconnect_interval_seconds: float = Field(default=5.0, ge=0, le=300)
+
     demo_max_rps: int = Field(default=100, ge=1, le=1_000)
     demo_max_duration_seconds: int = Field(default=300, ge=1, le=300)
     # The in-process orchestrator runs exactly one session at a time.
