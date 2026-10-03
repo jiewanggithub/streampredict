@@ -1,0 +1,35 @@
+{
+  "name": "streampredict-demo",
+  "platform": "onnxruntime_onnx",
+  "max_batch_size": 64,
+  "dynamic_batching": {
+    "max_queue_delay_microseconds": 2000
+  },
+  "inputs": [
+    {
+      "name": "features",
+      "datatype": "FP32",
+      "shape": [
+        -1,
+        3
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "probability",
+      "datatype": "FP32",
+      "shape": [
+        -1,
+        1
+      ]
+    }
+  ],
+  "parameters": {
+    "feature_names": [
+      "amount",
+      "events_per_hour",
+      "distance_km"
+    ]
+  }
+}

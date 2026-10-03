@@ -1,0 +1,28 @@
+{
+  "model": "streampredict-demo",
+  "version": "1",
+  "profile": "baseline",
+  "parameters": {
+    "samples": 20000,
+    "hidden": 4,
+    "epochs": 2,
+    "learning_rate": 0.01,
+    "seed": 7
+  },
+  "metrics": {
+    "auc": 0.7247,
+    "log_loss": 0.5505,
+    "accuracy": 0.701,
+    "positive_rate": 0.299,
+    "test_samples": 4000
+  },
+  "features": [
+    "amount",
+    "events_per_hour",
+    "distance_km"
+  ],
+  "data": "synthetic(seed=7, samples=20000)",
+  "code_version": "fca5b3f",
+  "trained_at": "2026-10-03T03:16:58+00:00",
+  "framework": "torch 2.14.1"
+}

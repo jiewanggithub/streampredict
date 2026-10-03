@@ -1,0 +1,4 @@
+# Offline training/export tooling for the demo model. Not installed in any service image.
+torch==2.14.1
+onnx==1.23.1
+onnxscript==0.7.2
