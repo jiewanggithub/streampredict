@@ -1,5 +1,5 @@
-# Local stack: Redis, Kafka (KRaft, single broker), the FastAPI gateway, consumer workers
-# (mock inference until TorchServe lands), and the dashboard.
+# Local stack: Redis, Kafka (KRaft, single broker), the model-serving service (ONNX Runtime),
+# the FastAPI gateway, consumer workers, and the dashboard.
 # Usage from the repository root: make up / make down / make logs
 name: streampredict
 
@@ -69,6 +69,15 @@ services:
         create prediction-events-dlq 3 604800000
     restart: "no"
 
+  model-serving:
+    build: ../../services/model-serving
+    environment:
+      SERVING_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # Exposed for local inspection (curl localhost:8001/v2/models/streampredict-demo).
+    ports:
+      - "8001:8000"
+    stop_grace_period: 15s
+
   api:
     build: ../../services/api
     environment:
@@ -77,8 +86,10 @@ services:
       CORS_ALLOW_ORIGINS: http://localhost:3000
       REDIS_URL: redis://redis:6379/0
       REDIS_CACHE_TTL_SECONDS: ${REDIS_CACHE_TTL_SECONDS:-300}
+      INFERENCE_BACKEND: serving
+      SERVING_URL: http://model-serving:8000
       MODEL_NAME: ${MODEL_NAME:-streampredict-demo}
-      MODEL_VERSION: ${MODEL_VERSION:-mock-1}
+      MODEL_VERSION: ${MODEL_VERSION:-latest}
       DEMO_MAX_RPS: ${DEMO_MAX_RPS:-100}
       DEMO_MAX_DURATION_SECONDS: ${DEMO_MAX_DURATION_SECONDS:-300}
       DEMO_CONTROL_TOKEN: ${DEMO_CONTROL_TOKEN:-}
@@ -91,6 +102,8 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      model-serving:
+        condition: service_healthy
     stop_grace_period: 15s
 
   consumer:
@@ -101,8 +114,10 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       REDIS_URL: redis://redis:6379/0
       REDIS_CACHE_TTL_SECONDS: ${REDIS_CACHE_TTL_SECONDS:-300}
+      INFERENCE_BACKEND: serving
+      SERVING_URL: http://model-serving:8000
       MODEL_NAME: ${MODEL_NAME:-streampredict-demo}
-      MODEL_VERSION: ${MODEL_VERSION:-mock-1}
+      MODEL_VERSION: ${MODEL_VERSION:-latest}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     deploy:
       replicas: ${CONSUMER_REPLICAS:-2}
@@ -111,6 +126,8 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      model-serving:
+        condition: service_healthy
     stop_grace_period: 15s
 
   dashboard:

@@ -44,14 +44,31 @@ credentials.
 | `make up` / `make down` / `make logs` | Redis, Kafka, the API gateway, 2 consumer workers, and the dashboard |
 | `make api-dev` | API gateway with auto-reload on <http://localhost:8000> (OpenAPI at `/docs`) |
 | `make consumer-dev` | One consumer worker on the host against Kafka at `localhost:9092` |
+| `make serving-dev` | Model-serving service on <http://localhost:8001> with the committed model repository |
 | `make dashboard-install && make dashboard-dev` | Next.js dashboard on <http://localhost:3000> |
 
 Without Redis the API keeps serving predictions with `cache: "bypass"`; without Kafka,
 `POST /api/v1/events` answers 503 and synchronous predictions are unaffected. `/ready` reports
-`degraded` in both cases. Inference is a deterministic mock until TorchServe lands in M5.
+`degraded` in both cases. Compose runs real inference through the model-serving service; the
+host-side `make api-dev` defaults to the in-process mock unless `INFERENCE_BACKEND=serving`.
 `CONSUMER_REPLICAS=4 make up` runs more workers (at most 12, the partition count).
 
 Operating the event pipeline (lag, dead letters, replay): [`runbooks/kafka-event-pipeline.md`](runbooks/kafka-event-pipeline.md).
+
+## Models
+
+The demo model is trained offline (`make train`, PyTorch on synthetic data) and exported to ONNX
+in `services/model-serving/model_repository/`, which is committed so the stack runs without
+PyTorch. The layout follows Triton/KServe:
+
+```text
+model_repository/streampredict-demo/config.json        signature, batching settings
+model_repository/streampredict-demo/<version>/model.onnx
+model_repository/streampredict-demo/<version>/metadata.json   metrics, parameters, data, code version
+```
+
+Any ONNX model with a matching `config.json` can be served. Adding a version directory and calling
+`POST /v2/repository/models/<model>/load` loads it without a restart.
 
 `services/api/requirements.in` lists direct runtime dependencies; `make api-lock` regenerates the
 pinned `requirements.txt` used by the Conda environment and both Docker images (the consumer

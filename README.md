@@ -2,7 +2,7 @@
 
 > 一个可交互、可观测、可扩缩容、支持模型版本管理与安全回滚的实时机器学习推理系统。
 
-StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 Demo、请求进入系统、Kafka 异步处理、Redis 在线特征与缓存、TorchServe 模型推理，到 Prometheus 指标展示、Kubernetes 自动扩缩容以及模型回滚的完整闭环。
+StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 Demo、请求进入系统、Kafka 异步处理、Redis 在线特征与缓存、ONNX Runtime 模型推理服务，到 Prometheus 指标展示、Kubernetes 自动扩缩容以及模型回滚的完整闭环。
 
 项目最终应当能够作为 GitHub Portfolio、面试演示和 MLOps / ML Infrastructure 系统设计案例使用。
 
@@ -25,7 +25,7 @@ StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 D
 | M2 | FastAPI API Gateway | `已实现` | 提供预测、Demo 控制、健康检查和指标接口 |
 | M3 | Kafka Event Pipeline | `已实现` | 实现事件生产、缓冲、消费与消费积压观测 |
 | M4 | Redis Feature & Cache Layer | `正在实现` | 提供在线特征读取和预测结果缓存 |
-| M5 | TorchServe Inference Service | `未开始` | 托管版本化模型并执行真实推理 |
+| M5 | ONNX Runtime Model Serving | `正在实现` | 托管版本化模型并执行真实推理 |
 | M6 | MLflow + S3 Model Lifecycle | `未开始` | 管理模型版本、制品、Champion/Challenger 与回滚 |
 | M7 | Prometheus Observability | `未开始` | 统一采集 API、Kafka、Redis、模型和集群指标 |
 | M8 | Demo Orchestrator & Load Generator | `正在实现` | 安全地触发流量尖峰并展示系统反馈闭环 |
@@ -49,7 +49,7 @@ Demo 使用合成数据，并且必须具备最大持续时间、速率上限和
 
 ## 系统架构
 
-当前架构图：[`docs/architecture/streampredict-architecture-demo.pdf`](docs/architecture/streampredict-architecture-demo.pdf)
+当前架构图：[`docs/architecture/streampredict-architecture-demo.pdf`](docs/architecture/streampredict-architecture-demo.pdf)（图中的 TorchServe 已由自研 ONNX Runtime 推理服务替代，见 M5）
 
 ```text
 User
@@ -62,14 +62,14 @@ FastAPI API Gateway
   |-------------------------------> Redis cache / online features
   |                                      |
   |                                      v
-  |---------------------------------> TorchServe
+  |---------------------------------> Model Serving (ONNX Runtime, KServe v2)
   |
   v
-Kafka Producer -> Kafka Topic -> Consumer Group -> Redis -> TorchServe
+Kafka Producer -> Kafka Topic -> Consumer Group -> Redis -> Model Serving
 
-MLflow Registry -> S3 Artifacts -> Deployment Controller -> TorchServe
+MLflow Registry -> S3 Artifacts -> Deployment Controller -> Model Serving
 
-Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
+Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
      |
      +-> Dashboard metrics
      +-> HPA scaling signals
@@ -123,7 +123,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 | Method | Endpoint | 用途 | 状态 |
 | --- | --- | --- | --- |
 | `GET` | `/health` | 进程健康检查 | `已实现` |
-| `GET` | `/ready` | Redis、Kafka、TorchServe 依赖就绪检查 | `已实现` |
+| `GET` | `/ready` | Redis、Kafka、模型推理服务依赖就绪检查 | `已实现` |
 | `POST` | `/api/v1/predict` | 同步预测 | `已实现` |
 | `POST` | `/api/v1/events` | 接收并发布异步预测事件 | `已实现` |
 | `POST` | `/api/v1/demo/traffic-spike` | 启动受控流量尖峰 | `已实现` |
@@ -143,7 +143,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 验收条件：API 能处理同步预测、异步事件和 Demo 控制，并暴露可采集指标。
 
-说明：异步事件的失败重试由 Consumer 负责（M3）；同步路径调用 TorchServe 的重试将随 M5 接入。
+说明：异步事件的失败重试由 Consumer 负责（M3）；同步路径对推理服务设置超时并快速失败（503），由调用方重试。
 
 ### M3 - Kafka Event Pipeline `已实现`
 
@@ -178,20 +178,24 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 验收条件：重复请求能命中缓存；Redis 故障不会造成 API 无限等待或不可解释的错误。
 
-### M5 - TorchServe Inference Service `未开始`
+### M5 - ONNX Runtime Model Serving `正在实现`
 
-负责加载模型、执行推理并暴露稳定的内部推理接口。
+负责加载模型、执行推理并暴露稳定的内部推理接口。平台与模型解耦：任何能导出为 ONNX 的模型（PyTorch、TensorFlow、scikit-learn 等）都可以按同一模型仓库规范接入。
+
+选型说明：原计划的 TorchServe 已于 2025 年 8 月归档停止维护；Triton 功能最全，但镜像约 20 GB，其核心优势（GPU / TensorRT、多框架混跑）本项目用不到。因此自研轻量推理服务（镜像约 0.4 GB），接口采用 Open Inference Protocol（KServe v2），模型仓库目录与 Triton / KServe 一致，需要时可无缝切换。
 
 需要实现：
 
-- [ ] 训练或准备一个轻量级示例模型。
-- [ ] 编写 preprocessing、inference 和 postprocessing handler。
-- [ ] 构建 TorchServe model archive。
-- [ ] 支持 model version、batching、worker 数量和超时配置。
-- [ ] 暴露 inference latency、error rate 和 worker 指标。
-- [ ] 增加 warm-up、健康检查和 readiness probe。
+- [x] 训练或准备一个轻量级示例模型：[`ml/training`](ml/training) 用合成数据训练 PyTorch 模型并导出 ONNX，v1（AUC 0.72）与 v2（AUC 0.78）两个版本。
+- [x] 预处理、推理和后处理：特征变换与标准化打包进 ONNX 计算图；风险阈值等业务逻辑留在 API。
+- [x] 模型制品与仓库规范：`<model>/config.json` + `<model>/<version>/model.onnx` + 训练元数据。
+- [x] 支持 model version、batching、线程数和超时配置；支持不重启热加载 / 卸载版本。
+- [x] 暴露 inference latency、queue time、batch size、error rate 和版本就绪指标。
+- [x] 增加 warm-up、健康检查和 readiness probe。
 
 验收条件：同一模型制品可以在本地和 Kubernetes 中稳定运行，并返回可验证的预测结果。
+
+验证记录：本地 Compose 中同步预测 p50 约 2 ms、p95 约 15 ms（含 Redis 缓存命中）；100 RPS 的 Kafka spike 共 1,084 个事件全部经推理服务处理，0 错误；并发请求被动态 batching 合并（157 次推理合并为 104 个批次）。Kubernetes 中的运行将在 M9 验证，届时标记为 `已实现`。
 
 ### M6 - MLflow + S3 Model Lifecycle `未开始`
 
@@ -218,7 +222,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 - [ ] FastAPI：RPS、status code、p50/p95/p99 latency、in-flight requests。
 - [ ] Kafka：producer rate、consumer throughput、consumer lag、retry count。
 - [ ] Redis：hit rate、miss rate、lookup latency、connection usage。
-- [ ] TorchServe：inference latency、batch size、worker count、error rate。
+- [ ] Model Serving：inference latency、batch size、queue time、error rate。
 - [ ] Kubernetes：Pod count、CPU、memory、restart count、HPA events。
 - [ ] Model：current version、prediction distribution、rollback count。
 - [ ] Demo：session state、target RPS、elapsed time、generated events。
@@ -254,7 +258,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 需要实现：
 
-- [ ] FastAPI、Consumer、TorchServe 等组件的 Deployment 和 Service。
+- [ ] FastAPI、Consumer、Model Serving 等组件的 Deployment 和 Service。
 - [ ] ConfigMap、Secret、resource requests / limits。
 - [ ] liveness、readiness 和 startup probes。
 - [ ] FastAPI 基于 CPU / RPS 的 HPA。
@@ -272,7 +276,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 需要实现：
 
 - [ ] 单元测试：Schema、缓存、事件处理和业务逻辑。
-- [ ] 集成测试：FastAPI + Redis + Kafka + TorchServe。
+- [ ] 集成测试：FastAPI + Redis + Kafka + Model Serving。
 - [ ] 端到端测试：从 Dashboard 触发 Demo 并验证反馈闭环。
 - [ ] 负载测试：吞吐、延迟、lag 和扩缩容恢复时间。
 - [ ] GitHub Actions：lint、type check、test、build。
@@ -330,7 +334,7 @@ StreamPredict/
 │   ├── api/                    # FastAPI Gateway
 │   ├── consumer/               # Kafka Consumer workers
 │   ├── demo-orchestrator/      # 受控流量生成与 Demo 状态机
-│   └── model-serving/          # TorchServe handler 与 model archive
+│   └── model-serving/          # ONNX Runtime 推理服务与模型仓库
 ├── ml/
 │   ├── training/               # 示例训练流程
 │   ├── evaluation/             # 模型评估与发布门禁
@@ -362,11 +366,11 @@ StreamPredict/
 
 已通过 `make up` 验证 Redis、API 与 Dashboard 全栈启动。
 
-### Phase 2 - Streaming Pipeline `正在实现`
+### Phase 2 - Streaming Pipeline `已实现`
 
-接入 Kafka Producer / Consumer，加入真实 TorchServe 推理和端到端事件追踪。
+接入 Kafka Producer / Consumer，加入真实模型推理和端到端事件追踪。
 
-Kafka 事件管道（M3）已完成；待完成 TorchServe 推理服务（M5）。
+已在本地完成：Kafka 事件管道（M3）、ONNX Runtime 推理服务与示例模型（M5），事件携带 `event_id` / `request_id` 贯穿到结果 topic。
 
 ### Phase 3 - Model Lifecycle & Observability `未开始`
 
@@ -397,7 +401,7 @@ make check
 conda env update -f environment.yml --prune
 ```
 
-启动本地全栈（Redis + Kafka + FastAPI + Consumer + Dashboard）：
+启动本地全栈（Redis + Kafka + 模型推理服务 + FastAPI + Consumer + Dashboard）：
 
 ```bash
 make up            # Docker Compose：Dashboard http://localhost:3000，API http://localhost:8000/docs
@@ -415,7 +419,7 @@ StreamPredict 项目达到第一版完成状态时，应满足：
 
 - 用户可以通过公开或受控访问的 Dashboard 完成一次真实 Demo。
 - 同步与异步预测链路都可运行、可测试、可观测。
-- Redis、Kafka、TorchServe、MLflow、对象存储和 Prometheus 均有明确职责。
+- Redis、Kafka、模型推理服务、MLflow、对象存储和 Prometheus 均有明确职责。
 - Kubernetes 能根据负载或 lag 扩缩容。
 - Dashboard 能展示 RPS、lag、replicas、latency、success rate、cache hit rate 和 model version。
 - 模型发布失败时可以回滚，并在 Dashboard 中看到回滚结果。
