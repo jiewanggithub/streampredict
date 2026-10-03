@@ -1,0 +1,9 @@
+# Root build context: allow only what the controller image copies.
+*
+!services/model-controller/requirements.txt
+!services/model-controller/src
+!ml/__init__.py
+!ml/registry
+!ml/artifacts
+**/__pycache__
+**/*.pyc
