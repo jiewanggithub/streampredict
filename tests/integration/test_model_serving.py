@@ -327,3 +327,20 @@ def _json(body: dict[str, Any]) -> str:
 
 def test_settings_default_to_mock_backend() -> None:
     assert Settings(_env_file=None).inference_backend == "mock"
+
+
+def test_default_version_pointer_routes_unversioned_requests(tmp_path: Path) -> None:
+    repository = tmp_path / "repo"
+    shutil.copytree(REPOSITORY, repository)
+    (repository / MODEL / "serving.json").write_text('{"default_version": "1"}')
+
+    with serving_client(repository) as client:
+        assert client.get(f"/v2/models/{MODEL}").json()["parameters"]["served_version"] == "1"
+        infer = client.post(f"/v2/models/{MODEL}/infer", json=infer_body(ROWS)).json()
+        assert infer["model_version"] == "1"
+
+        (repository / MODEL / "serving.json").write_text('{"default_version": "2"}')
+        client.post(f"/v2/repository/models/{MODEL}/load")
+        infer = client.post(f"/v2/models/{MODEL}/infer", json=infer_body(ROWS)).json()
+        assert infer["model_version"] == "2"
+        assert "streampredict_serving_output_score_bucket" in client.get("/metrics").text

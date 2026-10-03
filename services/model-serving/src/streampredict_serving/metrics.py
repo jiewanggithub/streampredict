@@ -53,6 +53,14 @@ class ServingMetrics:
             ["model", "version"],
             registry=self.registry,
         )
+        # Output distribution per version: the signal that exposes training/serving skew.
+        self.output_score = Histogram(
+            "streampredict_serving_output_score",
+            "Model output (probability) distribution.",
+            ["model", "version"],
+            buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+            registry=self.registry,
+        )
         self.version_ready = Gauge(
             "streampredict_serving_model_ready",
             "1 when a model version is loaded and warmed up.",

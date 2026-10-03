@@ -43,6 +43,9 @@ class VersionSource:
 class ModelSource:
     config: ModelConfig
     versions: list[VersionSource]
+    # Version that requests without an explicit version go to. Written by the deployment
+    # controller to `<model>/serving.json`; None means "highest loaded version".
+    default_version: str | None = None
 
 
 class RepositoryError(Exception):
@@ -74,8 +77,19 @@ def discover(root: Path) -> dict[str, ModelSource]:
         ]
         if versions:
             versions.sort(key=lambda v: int(v.version))
-            models[config.name] = ModelSource(config=config, versions=versions)
+            models[config.name] = ModelSource(
+                config=config,
+                versions=versions,
+                default_version=_read_default(model_dir / "serving.json"),
+            )
     return models
+
+
+def _read_default(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    value = json.loads(path.read_text()).get("default_version")
+    return str(value) if value is not None else None
 
 
 def _read_metadata(path: Path) -> dict[str, Any]:

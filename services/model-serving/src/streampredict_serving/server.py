@@ -8,7 +8,8 @@
     POST /v2/repository/models/{model}/load
     GET  /metrics
 
-Requests without a version go to the highest loaded version. Errors use the protocol's
+Requests without a version go to the model's default version (`serving.json`, written by the
+deployment controller), or the highest loaded version when none is set. Errors use the protocol's
 `{"error": "..."}` body.
 """
 
@@ -50,6 +51,7 @@ class ModelManager:
         self._metrics = metrics
         self._models: dict[str, dict[str, LoadedVersion]] = {}
         self._configs: dict[str, ModelConfig] = {}
+        self._defaults: dict[str, str | None] = {}
         self._lock = asyncio.Lock()
 
     async def load(self, only: str | None = None) -> dict[str, list[str]]:
@@ -74,6 +76,7 @@ class ModelManager:
                 wanted = {v.version: v for v in versions}
                 loaded = self._models.setdefault(name, {})
                 self._configs[name] = source.config
+                self._defaults[name] = source.default_version
                 for version, version_source in wanted.items():
                     if version in loaded:
                         continue
@@ -105,6 +108,9 @@ class ModelManager:
         if not versions:
             raise ServingError(404, f"model {model!r} is not loaded")
         if version is None:
+            default = self._defaults.get(model)
+            if default is not None and default in versions:
+                return versions[default]
             return versions[max(versions, key=int)]
         if version not in versions:
             raise ServingError(404, f"version {version!r} of model {model!r} is not loaded")
@@ -288,6 +294,8 @@ def create_app(settings: ServingSettings | None = None) -> FastAPI:
             metrics.requests.labels(*labels, "error").inc()
             raise ServingError(503, f"inference failed: {exc}") from exc
         metrics.requests.labels(*labels, "success").inc()
+        for score in output.ravel():
+            metrics.output_score.labels(*labels).observe(float(score))
         metrics.request_duration.labels(*labels).observe(time.perf_counter() - started)
         spec = instance.config.outputs[0]
         return InferResponse(
