@@ -21,14 +21,14 @@ StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 D
 | ID | Module | 当前状态 | 目标 |
 | --- | --- | --- | --- |
 | M0 | 项目基础与开发环境 | `已实现` | 建立可复现的本地开发环境、目录与工程规范 |
-| M1 | React / Next.js Demo Dashboard | `未开始` | 给用户一个可操作、可观察系统变化的 Demo 页面 |
-| M2 | FastAPI API Gateway | `未开始` | 提供预测、Demo 控制、健康检查和指标接口 |
+| M1 | React / Next.js Demo Dashboard | `正在实现` | 给用户一个可操作、可观察系统变化的 Demo 页面 |
+| M2 | FastAPI API Gateway | `正在实现` | 提供预测、Demo 控制、健康检查和指标接口 |
 | M3 | Kafka Event Pipeline | `未开始` | 实现事件生产、缓冲、消费与消费积压观测 |
-| M4 | Redis Feature & Cache Layer | `未开始` | 提供在线特征读取和预测结果缓存 |
+| M4 | Redis Feature & Cache Layer | `正在实现` | 提供在线特征读取和预测结果缓存 |
 | M5 | TorchServe Inference Service | `未开始` | 托管版本化模型并执行真实推理 |
 | M6 | MLflow + S3 Model Lifecycle | `未开始` | 管理模型版本、制品、Champion/Challenger 与回滚 |
 | M7 | Prometheus Observability | `未开始` | 统一采集 API、Kafka、Redis、模型和集群指标 |
-| M8 | Demo Orchestrator & Load Generator | `未开始` | 安全地触发流量尖峰并展示系统反馈闭环 |
+| M8 | Demo Orchestrator & Load Generator | `正在实现` | 安全地触发流量尖峰并展示系统反馈闭环 |
 | M9 | Kubernetes Deployment & HPA | `未开始` | 部署各服务并基于 CPU、RPS 和 Kafka lag 扩缩容 |
 | M10 | Testing, CI/CD & Security | `未开始` | 建立自动化测试、质量门禁、镜像发布与安全基线 |
 
@@ -95,26 +95,26 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 验收条件：新开发者能够根据 README 创建开发环境、安装 Git hooks，并通过全部基础质量检查。最小应用服务将在 Phase 1 中实现。
 
-### M1 - React / Next.js Demo Dashboard `未开始`
+### M1 - React / Next.js Demo Dashboard `正在实现`
 
 面向最终用户的交互式演示页面。
 
 需要实现：
 
-- [ ] 系统总览：首页显示服务健康状态与当前模型版本。
-- [ ] 在线预测：填写样例输入并展示预测结果、耗时与 cache hit 状态。
-- [ ] Demo 控制：提供 **Run Demo**、**Start Traffic Spike** 和 **Stop Demo**。
-- [ ] 实时指标：展示 RPS、p50/p95/p99 latency、success rate。
+- [x] 系统总览：首页显示服务健康状态与当前模型版本。
+- [x] 在线预测：填写样例输入并展示预测结果、耗时与 cache hit 状态。
+- [x] Demo 控制：提供 **Run Demo**、**Start Traffic Spike** 和 **Stop Demo**。
+- [x] 实时指标：展示 RPS、p50/p95/p99 latency、success rate。
 - [ ] Kafka 面板：展示 incoming events、consumer throughput 和 consumer lag。
 - [ ] Redis 面板：展示 cache hit rate、miss rate 和 lookup latency。
 - [ ] Model 面板：展示 Champion / Challenger、版本、错误率和回滚事件。
 - [ ] Infrastructure 面板：展示 Pod 数量、CPU、内存和 HPA scaling events。
-- [ ] 使用 SSE 或 WebSocket 接收实时更新；轮询可作为第一版实现。
-- [ ] 提供加载、空数据、断线、错误和 Demo 完成状态。
+- [x] 使用 SSE 或 WebSocket 接收实时更新；轮询可作为第一版实现。
+- [x] 提供加载、空数据、断线、错误和 Demo 完成状态。
 
 验收条件：用户不需要命令行，即可触发一次受控 Demo 并理解系统发生了什么。
 
-### M2 - FastAPI API Gateway `未开始`
+### M2 - FastAPI API Gateway `正在实现`
 
 系统统一入口，负责同步预测、Demo 控制和前端所需的聚合数据。
 
@@ -122,26 +122,28 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 | Method | Endpoint | 用途 | 状态 |
 | --- | --- | --- | --- |
-| `GET` | `/health` | 进程健康检查 | `未开始` |
-| `GET` | `/ready` | Redis、Kafka、TorchServe 依赖就绪检查 | `未开始` |
-| `POST` | `/api/v1/predict` | 同步预测 | `未开始` |
+| `GET` | `/health` | 进程健康检查 | `已实现` |
+| `GET` | `/ready` | Redis、Kafka、TorchServe 依赖就绪检查 | `已实现` |
+| `POST` | `/api/v1/predict` | 同步预测 | `已实现` |
 | `POST` | `/api/v1/events` | 接收并发布异步预测事件 | `未开始` |
-| `POST` | `/api/v1/demo/traffic-spike` | 启动受控流量尖峰 | `未开始` |
-| `POST` | `/api/v1/demo/stop` | 停止当前 Demo | `未开始` |
-| `GET` | `/api/v1/demo/status` | 查询 Demo 状态 | `未开始` |
-| `GET` | `/api/v1/metrics/overview` | 返回前端聚合指标 | `未开始` |
-| `GET` | `/api/v1/metrics/stream` | 通过 SSE 推送指标 | `未开始` |
-| `GET` | `/metrics` | 暴露 Prometheus 格式指标 | `未开始` |
+| `POST` | `/api/v1/demo/traffic-spike` | 启动受控流量尖峰 | `已实现` |
+| `POST` | `/api/v1/demo/stop` | 停止当前 Demo | `已实现` |
+| `GET` | `/api/v1/demo/status` | 查询 Demo 状态 | `已实现` |
+| `GET` | `/api/v1/metrics/overview` | 返回前端聚合指标 | `已实现` |
+| `GET` | `/api/v1/metrics/stream` | 通过 SSE 推送指标 | `已实现` |
+| `GET` | `/metrics` | 暴露 Prometheus 格式指标 | `已实现` |
 
 需要实现：
 
-- [ ] Pydantic 请求与响应 Schema。
-- [ ] Request ID、结构化日志和统一错误格式。
-- [ ] 超时、重试、并发限制和优雅关闭。
-- [ ] CORS、输入校验和 Demo 控制接口保护。
-- [ ] OpenAPI 文档和接口测试。
+- [x] Pydantic 请求与响应 Schema。
+- [x] Request ID、结构化日志和统一错误格式。
+- [x] 超时、重试、并发限制和优雅关闭。
+- [x] CORS、输入校验和 Demo 控制接口保护。
+- [x] OpenAPI 文档和接口测试。
 
 验收条件：API 能处理同步预测、异步事件和 Demo 控制，并暴露可采集指标。
+
+当前缺口：`POST /api/v1/events` 依赖 M3 Kafka Producer；推理调用的重试将在接入 TorchServe（M5）时补充。
 
 ### M3 - Kafka Event Pipeline `未开始`
 
@@ -159,18 +161,18 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 验收条件：在突发流量下不丢事件，Consumer 可以水平扩展，失败事件可定位和重放。
 
-### M4 - Redis Feature & Cache Layer `未开始`
+### M4 - Redis Feature & Cache Layer `正在实现`
 
 负责低延迟在线特征读取、预测缓存和短期 Demo 状态。
 
 需要实现：
 
 - [ ] 设计 feature key、prediction cache key 和 TTL 规则。
-- [ ] 实现 cache-aside 读取流程。
-- [ ] 防止缓存击穿、雪崩和无界 key 增长。
+- [x] 实现 cache-aside 读取流程。
+- [x] 防止缓存击穿、雪崩和无界 key 增长。
 - [ ] 保存 Demo session 状态，但不将 Redis 作为永久事实来源。
-- [ ] 暴露 hit rate、miss rate、连接数和 lookup latency。
-- [ ] 增加 Redis 不可用时的降级策略。
+- [x] 暴露 hit rate、miss rate、连接数和 lookup latency。
+- [x] 增加 Redis 不可用时的降级策略。
 
 验收条件：重复请求能命中缓存；Redis 故障不会造成 API 无限等待或不可解释的错误。
 
@@ -228,18 +230,18 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 验收条件：一次 Demo 的主要变化都能从指标中解释，并能在前端或 Grafana 中复现。
 
-### M8 - Demo Orchestrator & Load Generator `未开始`
+### M8 - Demo Orchestrator & Load Generator `正在实现`
 
 负责把复杂系统行为封装成用户可触发的安全演示。
 
 需要实现：
 
-- [ ] 定义 Demo 状态机：`idle -> starting -> running -> cooling_down -> completed/failed`。
-- [ ] 支持固定模式和 traffic spike 模式。
-- [ ] 限制最大 RPS、最大时长和同一时间的 session 数量。
-- [ ] 支持手动停止、超时停止和异常清理。
-- [ ] 使用合成数据，不上传或保留用户敏感数据。
-- [ ] 将 Demo 进度和关键事件推送到前端。
+- [x] 定义 Demo 状态机：`idle -> starting -> running -> cooling_down -> completed/failed`。
+- [x] 支持固定模式和 traffic spike 模式。
+- [x] 限制最大 RPS、最大时长和同一时间的 session 数量。
+- [x] 支持手动停止、超时停止和异常清理。
+- [x] 使用合成数据，不上传或保留用户敏感数据。
+- [x] 将 Demo 进度和关键事件推送到前端。
 - [ ] Demo 完成后生成摘要：峰值 RPS、最大 lag、扩容次数、恢复时间。
 
 验收条件：连续运行多次 Demo 不会残留任务、无限发消息或持续占用资源。
@@ -352,9 +354,11 @@ StreamPredict/
 
 ## 实施阶段
 
-### Phase 1 - Local Vertical Slice `未开始`
+### Phase 1 - Local Vertical Slice `正在实现`
 
 实现 Dashboard -> FastAPI -> Redis -> mock inference 的最小闭环，同时建立测试和 Docker Compose。
+
+代码、单元/集成测试与 Compose 配置已完成；待在 Docker 环境中验证 `make up` 全栈启动后标记为 `已实现`。
 
 ### Phase 2 - Streaming Pipeline `未开始`
 
@@ -374,7 +378,7 @@ StreamPredict/
 
 ## 本地开发
 
-M0 开发环境已经完成。完整说明见 [`docs/development.md`](docs/development.md)；应用依赖与服务启动命令将在 Phase 1 中补充。
+完整说明见 [`docs/development.md`](docs/development.md)。
 
 ```bash
 conda env create -f environment.yml
@@ -387,6 +391,17 @@ make check
 
 ```bash
 conda env update -f environment.yml --prune
+```
+
+启动 Phase 1 本地闭环（Redis + FastAPI + Dashboard）：
+
+```bash
+make up            # Docker Compose：Dashboard http://localhost:3000，API http://localhost:8000/docs
+make down
+
+# 或不使用 Docker 分别启动（API 在 Redis 不可用时降级为 cache bypass）
+make api-dev
+make dashboard-install && make dashboard-dev
 ```
 
 ## 完成定义

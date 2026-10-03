@@ -37,6 +37,23 @@ Copy `.env.example` to `.env` and replace only values needed for local developme
 ignored by Git and must never be committed. The checked-in example contains placeholders, not real
 credentials.
 
+## Running the Phase 1 stack
+
+| Command | What it starts |
+| --- | --- |
+| `make up` / `make down` / `make logs` | Redis, the API gateway, and the dashboard via Docker Compose |
+| `make api-dev` | API gateway with auto-reload on <http://localhost:8000> (OpenAPI at `/docs`) |
+| `make dashboard-install && make dashboard-dev` | Next.js dashboard on <http://localhost:3000> |
+
+Without Redis the API keeps serving predictions with `cache: "bypass"` and `/ready` reports
+`degraded`. Inference is a deterministic mock until TorchServe lands in M5.
+
+`services/api/requirements.in` lists direct runtime dependencies; `make api-lock` regenerates the
+pinned `requirements.txt` used by both the Conda environment and the Docker image.
+
+The Makefile resolves the `streampredict` env's interpreter by absolute path, so another activated
+Conda env or a system Python earlier on `PATH` cannot shadow it.
+
 ## Quality gates
 
 `make check` is the local equivalent of the future CI quality gate. It runs:
@@ -46,6 +63,7 @@ credentials.
 - pytest
 - repository structure validation
 - whitespace validation
+- dashboard ESLint, TypeScript, and production build
 
 Use `make format` to apply safe automatic Python formatting before committing.
 

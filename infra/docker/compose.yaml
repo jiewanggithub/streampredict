@@ -1,0 +1,48 @@
+# Local Phase 1 stack: Redis, the FastAPI gateway (mock inference), and the dashboard.
+# Usage from the repository root: make up / make down / make logs
+name: streampredict
+
+services:
+  redis:
+    image: redis:7.4.7-alpine
+    # Cache-only Redis: bounded memory with LRU eviction and no persistence.
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru",
+              "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ../../services/api
+    environment:
+      APP_ENV: development
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ALLOW_ORIGINS: http://localhost:3000
+      REDIS_URL: redis://redis:6379/0
+      REDIS_CACHE_TTL_SECONDS: ${REDIS_CACHE_TTL_SECONDS:-300}
+      MODEL_NAME: ${MODEL_NAME:-streampredict-demo}
+      MODEL_VERSION: ${MODEL_VERSION:-mock-1}
+      DEMO_MAX_RPS: ${DEMO_MAX_RPS:-100}
+      DEMO_MAX_DURATION_SECONDS: ${DEMO_MAX_DURATION_SECONDS:-300}
+      DEMO_CONTROL_TOKEN: ${DEMO_CONTROL_TOKEN:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    stop_grace_period: 15s
+
+  dashboard:
+    build:
+      context: ../../apps/dashboard
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
