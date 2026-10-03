@@ -3,6 +3,7 @@ export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://loc
 export type DependencyStatus = "ok" | "unavailable";
 export type DemoState = "idle" | "starting" | "running" | "cooling_down" | "completed" | "failed";
 export type DemoProfile = "standard" | "spike";
+export type DemoChannel = "sync" | "events";
 export type RiskLabel = "low_risk" | "review" | "high_risk";
 export type CacheStatus = "hit" | "miss" | "bypass";
 
@@ -19,6 +20,7 @@ export type DemoStatus = {
   session_id: string | null;
   state: DemoState;
   profile: DemoProfile | null;
+  channel: DemoChannel | null;
   current_target_rps: number;
   target_rps: number;
   max_rps: number;
@@ -31,6 +33,18 @@ export type DemoStatus = {
   ended_at: string | null;
   stop_reason: "duration_reached" | "manual" | "shutdown" | "error" | null;
   summary: DemoSummary | null;
+};
+
+export type KafkaMetrics = {
+  status: DependencyStatus;
+  topic: string;
+  consumer_group: string;
+  partitions: number | null;
+  lag: number | null;
+  lag_history: number[];
+  incoming_rate: number | null;
+  consumer_rate: number | null;
+  lag_by_partition: { partition: number; lag: number }[];
 };
 
 export type MetricsOverview = {
@@ -56,7 +70,7 @@ export type MetricsOverview = {
   };
   dependencies: Record<string, DependencyStatus>;
   demo: DemoStatus;
-  kafka: null;
+  kafka: KafkaMetrics | null;
   infrastructure: null;
 };
 
@@ -110,7 +124,7 @@ export const api = {
   overview: () => request<MetricsOverview>("/api/v1/metrics/overview", undefined, 3000),
   predict: (features: PredictionFeatures) =>
     request<PredictResponse>("/api/v1/predict", { method: "POST", body: JSON.stringify({ features }) }),
-  startDemo: (profile: DemoProfile) =>
-    request<DemoStatus>("/api/v1/demo/traffic-spike", { method: "POST", body: JSON.stringify({ profile }) }),
+  startDemo: (profile: DemoProfile, channel: DemoChannel) =>
+    request<DemoStatus>("/api/v1/demo/traffic-spike", { method: "POST", body: JSON.stringify({ profile, channel }) }),
   stopDemo: () => request<DemoStatus>("/api/v1/demo/stop", { method: "POST" }),
 };

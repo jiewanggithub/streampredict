@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import { API_BASE_URL, ApiError, api, type DemoProfile, type MetricsOverview, type PredictResponse, type RiskLabel } from "@/lib/api";
+import { API_BASE_URL, ApiError, api, type DemoChannel, type DemoProfile, type MetricsOverview, type PredictResponse, type RiskLabel } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 1000;
 const SPARKLINE_POINTS = 30;
@@ -26,7 +26,7 @@ function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "Unexpected error";
 }
 
-function Sparkline({ values, color }: { values: number[]; color: string }) {
+function Sparkline({ values, color, label = "Requests per second over the last 30 seconds", className = "sparkline" }: { values: number[]; color: string; label?: string; className?: string }) {
   const width = 240;
   const height = 64;
   const max = Math.max(...values, 1);
@@ -40,7 +40,7 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   const id = `fill-${color.replace("#", "")}`;
 
   return (
-    <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Requests per second over the last 30 seconds">
+    <svg className={className} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label}>
       <defs>
         <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.28" />
@@ -107,7 +107,7 @@ export function StreamPredictDashboard() {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [transport, setTransport] = useState<"sse" | "polling">("sse");
   const eventId = useRef(0);
-  const previous = useRef<{ connected: boolean | null; redis?: string; demoState?: string; sessionId?: string | null }>({ connected: null });
+  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; demoState?: string; sessionId?: string | null }>({ connected: null });
 
   const addEvent = useCallback((message: string, tone: Tone = "info") => {
     eventId.current += 1;
@@ -119,19 +119,24 @@ export function StreamPredictDashboard() {
     (next: MetricsOverview) => {
       const prev = previous.current;
       if (prev.connected !== true) addEvent(`Connected to API · serving ${next.model.name} ${next.model.version}`, "success");
+      const kafkaState = next.kafka?.status;
+      if (prev.kafka && kafkaState && prev.kafka !== kafkaState) {
+        if (kafkaState === "ok") addEvent("Kafka reachable; async events flowing", "success");
+        else addEvent("Kafka unreachable; async events paused", "warning");
+      }
       if (prev.redis && prev.redis !== next.dependencies.redis) {
         if (next.dependencies.redis === "ok") addEvent("Redis recovered; cache re-enabled", "success");
         else addEvent("Redis unavailable; predictions bypass the cache", "warning");
       }
       const demo = next.demo;
       if (prev.demoState && (demo.state !== prev.demoState || demo.session_id !== prev.sessionId)) {
-        if (demo.state === "running") addEvent(`${demo.profile === "spike" ? "Traffic spike" : "Standard demo"} running · target ${demo.target_rps} RPS for ${demo.duration_seconds}s`);
+        if (demo.state === "running") addEvent(`${demo.profile === "spike" ? "Traffic spike" : "Standard demo"} running ${demo.channel === "events" ? "through Kafka " : ""}· target ${demo.target_rps} RPS for ${demo.duration_seconds}s`);
         if (demo.state === "cooling_down") addEvent("Traffic generation stopped; draining in-flight requests", "info");
         if (demo.state === "completed" && demo.summary)
           addEvent(`Demo completed · ${demo.summary.total_requests} requests, peak ${demo.summary.peak_rps} RPS, ${demo.summary.errors} errors`, "success");
         if (demo.state === "failed") addEvent(`Demo ended early (${demo.stop_reason ?? "unknown"})`, "warning");
       }
-      previous.current = { connected: true, redis: next.dependencies.redis, demoState: demo.state, sessionId: demo.session_id };
+      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, demoState: demo.state, sessionId: demo.session_id };
       setOverview(next);
       setConnectionError(null);
     },
@@ -191,10 +196,12 @@ export function StreamPredictDashboard() {
   const startDemo = async (profile: DemoProfile) => {
     setDemoPending(true);
     setDemoError(null);
+    // Spikes go through Kafka when it is healthy so the lag and consumer throughput react.
+    const channel: DemoChannel = profile === "spike" && overview?.kafka?.status === "ok" ? "events" : "sync";
     try {
-      const status = await api.startDemo(profile);
+      const status = await api.startDemo(profile, channel);
       setOverview((current) => (current ? { ...current, demo: status } : current));
-      addEvent(`${profile === "spike" ? "Traffic spike" : "Standard demo"} requested · capped at ${status.target_rps} RPS`);
+      addEvent(`${profile === "spike" ? "Traffic spike" : "Standard demo"} requested · ${channel === "events" ? "via Kafka" : "direct"} · capped at ${status.target_rps} RPS`);
     } catch (error) {
       setDemoError(errorMessage(error));
     } finally {
@@ -241,6 +248,10 @@ export function StreamPredictDashboard() {
   const traffic = overview?.traffic;
   const cache = overview?.cache;
   const redisStatus: NodeStatus = !connected ? "pending" : overview.dependencies.redis === "ok" ? "healthy" : "degraded";
+  const kafka = overview?.kafka ?? null;
+  const eventsDemo = active && overview?.demo.channel === "events";
+  const kafkaStatus: NodeStatus = !connected || !kafka ? "pending" : kafka.status === "ok" ? "healthy" : "degraded";
+  const kafkaDetail = !kafka ? "disabled" : kafka.status === "ok" ? `lag ${fmt(kafka.lag, "", 0)}` : "unreachable";
   const history = traffic ? traffic.rps_history.slice(-SPARKLINE_POINTS) : Array<number>(SPARKLINE_POINTS).fill(0);
   const hitRate = cache?.hit_rate ?? 0;
   const statusLabel = !overview ? "connecting" : demo ? demo.state.replace("_", " ") : "idle";
@@ -320,7 +331,12 @@ export function StreamPredictDashboard() {
       </section>
 
       <section className="metric-grid" aria-label="Live platform metrics">
-        <MetricCard label="REQUESTS / SECOND" value={fmt(traffic?.rps, "", 1)} detail={active ? "Synthetic demo traffic + API" : "5-second average"} tone="cyan" history={history} />
+        {/* An event-channel demo bypasses the synchronous path, so show the Kafka ingest rate instead. */}
+        {eventsDemo ? (
+          <MetricCard label="EVENTS / SECOND" value={fmt(kafka?.incoming_rate, "", 1)} detail={`Async demo via Kafka · ${fmt(traffic?.rps, " sync req/s", 1)}`} tone="cyan" />
+        ) : (
+          <MetricCard label="REQUESTS / SECOND" value={fmt(traffic?.rps, "", 1)} detail={active ? "Synthetic demo traffic + API" : "5-second average"} tone="cyan" history={history} />
+        )}
         <MetricCard label="P95 LATENCY" value={fmt(traffic?.p95_ms, " ms")} detail={traffic?.p50_ms != null ? `p50 ${fmt(traffic.p50_ms, " ms")} · p99 ${fmt(traffic.p99_ms, " ms")}` : "No traffic in the last 60s"} tone="violet" />
         <MetricCard label="SUCCESS RATE" value={fmt(traffic?.success_rate, "%", 2)} detail={traffic ? `${traffic.errors_in_window} errors · ${traffic.requests_in_window.toLocaleString()} requests in 60s` : "Waiting for data"} tone="mint" />
         <MetricCard label="CACHE HIT RATE" value={fmt(cache?.hit_rate, "%")} detail={cache?.lookup_p95_ms != null ? `Redis lookup p95 ${fmt(cache.lookup_p95_ms, " ms", 2)}` : "No cache lookups yet"} tone="amber" />
@@ -344,7 +360,7 @@ export function StreamPredictDashboard() {
             <span className="flow-arrow">→</span>
             <ServiceNode name="Inference" detail={overview ? `mock · ${overview.model.version}` : "unknown"} status={connected && overview.dependencies.inference === "ok" ? "healthy" : "pending"} />
             <span className="flow-arrow">→</span>
-            <ServiceNode name="Kafka" detail="Phase 2" status="pending" />
+            <ServiceNode name="Kafka" detail={kafkaDetail} status={kafkaStatus} />
             <span className="flow-arrow">→</span>
             <ServiceNode name="TorchServe" detail="Phase 2" status="pending" />
           </div>
@@ -542,9 +558,41 @@ export function StreamPredictDashboard() {
           <p className="empty-state">Champion / Challenger promotion and health-gated rollback arrive with MLflow in Phase 3.</p>
         </article>
 
-        <PendingPanel kicker="STREAMING" title="Kafka pipeline" phase="Phase 2">
-          Async events, consumer throughput, and consumer lag appear here once the Kafka pipeline is connected.
-        </PendingPanel>
+        <article className="panel detail-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">STREAMING</span>
+              <h2>Kafka pipeline</h2>
+            </div>
+            <span className={kafkaStatus === "healthy" ? "panel-badge" : "mono"}>{kafka ? `${kafka.partitions ?? "—"} partitions` : "disabled"}</span>
+          </div>
+          {kafka?.status === "ok" ? (
+            <>
+              <div className="detail-stats">
+                <div>
+                  <span>Incoming</span>
+                  <strong>{fmt(kafka.incoming_rate, "/s")}</strong>
+                </div>
+                <div>
+                  <span>Consumed</span>
+                  <strong>{fmt(kafka.consumer_rate, "/s")}</strong>
+                </div>
+                <div>
+                  <span>Consumer lag</span>
+                  <strong>{fmt(kafka.lag, "", 0)}</strong>
+                </div>
+              </div>
+              <Sparkline values={kafka.lag_history.length ? kafka.lag_history : [0]} color="#ffb75d" label="Consumer lag over the last 60 seconds" className="panel-sparkline" />
+              <small className="panel-note">
+                {kafka.topic} → {kafka.consumer_group}
+              </small>
+            </>
+          ) : (
+            <p className="empty-state">
+              {kafka ? "Kafka is unreachable; async events are paused and synchronous predictions continue." : "The event pipeline is disabled (KAFKA_BOOTSTRAP_SERVERS is empty)."}
+            </p>
+          )}
+        </article>
 
         <PendingPanel kicker="INFRASTRUCTURE" title="Autoscaling" phase="Phase 4">
           Pod counts, CPU, and HPA scaling events appear here once the stack runs on Kubernetes.
@@ -576,7 +624,7 @@ export function StreamPredictDashboard() {
 
       <footer>
         <span>StreamPredict · synthetic demo environment</span>
-        <span>Phase 1 · Next.js → FastAPI → Redis → mock inference</span>
+        <span>Phase 2 · Next.js → FastAPI → Redis / Kafka → consumers → mock inference</span>
       </footer>
     </main>
   );
