@@ -171,6 +171,57 @@ class InfrastructureMetrics(BaseModel):
     members: list[ConsumerMember]
 
 
+class ModelVersionInfo(BaseModel):
+    version: str
+    profile: str = ""
+    description: str = ""
+    status: str = ""
+    auc: float | None = None
+
+
+class ActiveReleaseInfo(BaseModel):
+    version: str
+    previous: str | None
+    stage: str
+    started_at: float
+    detail: str = ""
+
+
+class ReleaseRecordInfo(BaseModel):
+    version: str
+    previous: str | None
+    outcome: str
+    stage: str
+    reasons: list[str] = Field(default_factory=list)
+    metrics: dict[str, float] = Field(default_factory=dict)
+    started_at: float
+    finished_at: float
+
+
+class ControllerEventInfo(BaseModel):
+    at: float
+    level: str
+    message: str
+
+
+class DeploymentStatus(BaseModel):
+    """Release state reported by the deployment controller (M6)."""
+
+    status: DependencyStatus
+    champion: str | None = None
+    serving_default: str | None = None
+    versions: list[ModelVersionInfo] = Field(default_factory=list)
+    active: ActiveReleaseInfo | None = None
+    history: list[ReleaseRecordInfo] = Field(default_factory=list)
+    events: list[ControllerEventInfo] = Field(default_factory=list)
+
+
+class ReleaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(pattern=r"^[0-9]{1,6}$")
+
+
 class MetricsOverview(BaseModel):
     generated_at: datetime
     window_seconds: int
@@ -183,6 +234,8 @@ class MetricsOverview(BaseModel):
     kafka: KafkaMetrics | None = None
     # None when the event pipeline is disabled; consumer replicas are read from Kafka.
     infrastructure: InfrastructureMetrics | None = None
+    # None when no deployment controller is configured (CONTROLLER_URL is empty).
+    deployment: DeploymentStatus | None = None
 
 
 class ErrorBody(BaseModel):

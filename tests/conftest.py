@@ -112,13 +112,13 @@ def make_client() -> Iterator[ClientFactory]:
                 return cast(Redis, fakeredis.FakeAsyncRedis())
             return cast(Redis, UnavailableRedis())
 
+        factories: dict[str, Any] = {"redis_factory": redis_factory}
         if kafka is not None:
             overrides.setdefault("kafka_bootstrap_servers", "kafka:9092")
-            app = create_app(
-                build_settings(**overrides), redis_factory=redis_factory, kafka_factory=kafka
-            )
-        else:
-            app = create_app(build_settings(**overrides), redis_factory=redis_factory)
+            factories["kafka_factory"] = kafka
+        if "deployment_factory" in overrides:
+            factories["deployment_factory"] = overrides.pop("deployment_factory")
+        app = create_app(build_settings(**overrides), **factories)
         client = TestClient(app)
         client.__enter__()
         clients.append(client)

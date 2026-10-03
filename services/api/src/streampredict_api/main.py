@@ -21,6 +21,7 @@ from redis.asyncio import Redis
 from .cache import PredictionCache, build_redis
 from .config import Settings, get_settings
 from .demo import DemoOrchestrator
+from .deployment import DeploymentMonitor
 from .errors import AppError, register_error_handlers
 from .events import (
     DisabledEventPublisher,
@@ -47,6 +48,7 @@ from .schemas import (
     PredictRequest,
     PredictResponse,
     ReadyResponse,
+    ReleaseRequest,
     TrafficMetrics,
 )
 
@@ -58,6 +60,7 @@ VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 RedisFactory = Callable[[Settings], Redis]
 InferenceFactory = Callable[[Settings], InferenceClient]
 KafkaFactory = Callable[[Settings, ApiMetrics], tuple[EventPublisher, KafkaMonitor | None]]
+DeploymentFactory = Callable[[Settings], DeploymentMonitor | None]
 
 
 @dataclass
@@ -70,6 +73,7 @@ class Container:
     demo: DemoOrchestrator
     publisher: EventPublisher
     kafka_monitor: KafkaMonitor | None
+    deployment: DeploymentMonitor | None
 
 
 def _default_redis(settings: Settings) -> Redis:
@@ -108,6 +112,12 @@ def _default_kafka(
     return publisher, monitor
 
 
+def _default_deployment(settings: Settings) -> DeploymentMonitor | None:
+    if not settings.controller_url:
+        return None
+    return DeploymentMonitor(settings.controller_url, settings.model_name)
+
+
 def get_container(request: Request) -> Container:
     return cast(Container, request.app.state.container)
 
@@ -141,6 +151,7 @@ def create_app(
     redis_factory: RedisFactory = _default_redis,
     inference_factory: InferenceFactory = _default_inference,
     kafka_factory: KafkaFactory = _default_kafka,
+    deployment_factory: DeploymentFactory = _default_deployment,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -177,13 +188,24 @@ def create_app(
             publisher=publisher,
         )
         metrics.model_info.labels(inference.model_name, inference.model_version).set(1)
+        deployment = deployment_factory(settings)
         app.state.container = Container(
-            settings, metrics, window, cache, predictions, demo, publisher, kafka_monitor
+            settings,
+            metrics,
+            window,
+            cache,
+            predictions,
+            demo,
+            publisher,
+            kafka_monitor,
+            deployment,
         )
         # Connect in the background; Kafka being down must not block or fail startup.
         await publisher.ready()
         if kafka_monitor is not None:
             kafka_monitor.start()
+        if deployment is not None:
+            deployment.start()
         logger.info(
             "API gateway started",
             extra={"model_name": inference.model_name, "model_version": inference.model_version},
@@ -194,6 +216,8 @@ def create_app(
             await demo.shutdown()
             if kafka_monitor is not None:
                 await kafka_monitor.stop()
+            if deployment is not None:
+                await deployment.stop()
             await publisher.close()
             await inference.close()
             await redis_client.aclose()
@@ -317,6 +341,33 @@ def create_app(
 
     demo_guard = [Depends(require_demo_token)]
 
+    def deployment_of(container: Container) -> DeploymentMonitor:
+        if container.deployment is None:
+            raise AppError(503, "controller_disabled", "No deployment controller is configured.")
+        return container.deployment
+
+    @app.post(
+        "/api/v1/models/releases",
+        status_code=202,
+        dependencies=demo_guard,
+        responses={401: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+        tags=["models"],
+    )
+    async def release_model(body: ReleaseRequest, container: ContainerDep) -> dict[str, Any]:
+        """Start a gated release of a registered model version (controller-managed)."""
+        return await deployment_of(container).release(body.version)
+
+    @app.post(
+        "/api/v1/models/rollback",
+        status_code=202,
+        dependencies=demo_guard,
+        responses={401: {"model": ErrorResponse}, 409: {"model": ErrorResponse}},
+        tags=["models"],
+    )
+    async def rollback_model(container: ContainerDep) -> dict[str, Any]:
+        """Roll back to the previous stable champion."""
+        return await deployment_of(container).rollback()
+
     @app.post(
         "/api/v1/demo/traffic-spike",
         response_model=DemoStatus,
@@ -379,6 +430,11 @@ def create_app(
 
     @app.get("/metrics", include_in_schema=False)
     async def prometheus_metrics(container: ContainerDep) -> Response:
+        # The served version can change at runtime (controller promotion or rollback).
+        container.metrics.model_info.clear()
+        container.metrics.model_info.labels(
+            container.predictions.model_name, container.predictions.model_version
+        ).set(1)
         return Response(generate_latest(container.metrics.registry), media_type=CONTENT_TYPE_LATEST)
 
     return app
@@ -428,6 +484,7 @@ async def _build_overview(container: Container) -> MetricsOverview:
         )
         if container.kafka_monitor
         else None,
+        deployment=container.deployment.overview() if container.deployment else None,
     )
 
 

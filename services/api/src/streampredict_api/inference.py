@@ -5,6 +5,7 @@ features into a probability, so models can be swapped without touching the API.
 """
 
 import asyncio
+import contextlib
 import logging
 import math
 import time
@@ -98,9 +99,10 @@ class MockInferenceClient:
 class ServingInferenceClient:
     """Calls the model-serving service over the Open Inference Protocol (KServe v2).
 
-    The served version is pinned at startup, either to MODEL_VERSION or, when that is `latest`, to
-    the highest version the server reports. Pinning keeps cache keys and metrics consistent;
-    switching versions is an explicit deployment step (M6).
+    With MODEL_VERSION pinned (e.g. `2`) every request goes to that version. With `latest` the
+    client follows the server's default version, which the deployment controller switches on
+    promotion and rollback; a background task re-reads it every `follow_seconds`. Requests always
+    name an explicit version, so cache keys and metrics never mix versions.
     """
 
     def __init__(
@@ -110,11 +112,13 @@ class ServingInferenceClient:
         model_version: str,
         timeout_seconds: float,
         transport: httpx.AsyncBaseTransport | None = None,
+        follow_seconds: float = 2.0,
     ) -> None:
         self.model_name = model_name
         self.backend = "onnxruntime"
-        self._requested = model_version
-        self.model_version = model_version if model_version != "latest" else "unresolved"
+        self._follow = model_version == "latest"
+        self.model_version = "unresolved" if self._follow else model_version
+        self._follow_seconds = follow_seconds
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=timeout_seconds,
@@ -122,34 +126,49 @@ class ServingInferenceClient:
             limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
         )
         self._next_resolve = 0.0
+        self._follower: asyncio.Task[None] | None = None
 
     @property
     def resolved(self) -> bool:
         return self.model_version != "unresolved"
 
     async def start(self) -> None:
-        await self._resolve()
+        await self._resolve(force=True)
+        if self._follow:
+            self._follower = asyncio.create_task(self._follow_loop(), name="follow-version")
 
-    async def _resolve(self) -> bool:
-        if self.resolved:
-            return True
-        if time.monotonic() < self._next_resolve:
+    async def _follow_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self._follow_seconds)
+            await self._resolve(force=True)
+
+    async def _resolve(self, force: bool = False) -> bool:
+        if not self._follow or (self.resolved and not force):
+            return self.resolved
+        if not force and time.monotonic() < self._next_resolve:
             return False
         self._next_resolve = time.monotonic() + 2.0
         try:
             response = await self._client.get(f"/v2/models/{self.model_name}")
             response.raise_for_status()
-            versions: list[str] = response.json()["versions"]
+            metadata: dict[str, Any] = response.json()
+            versions: list[str] = metadata["versions"]
         except (httpx.HTTPError, KeyError, ValueError) as exc:
-            logger.warning("Model serving unavailable", extra={"error": repr(exc)})
-            return False
-        if not versions:
-            return False
-        self.model_version = max(versions, key=int)
-        logger.info(
-            "Resolved served model version",
-            extra={"model_name": self.model_name, "model_version": self.model_version},
+            if not self.resolved:
+                logger.warning("Model serving unavailable", extra={"error": repr(exc)})
+            return self.resolved
+        served = metadata.get("parameters", {}).get("served_version")
+        target = (
+            str(served) if served is not None else (max(versions, key=int) if versions else None)
         )
+        if target is None:
+            return self.resolved
+        if target != self.model_version:
+            logger.info(
+                "Serving model version changed",
+                extra={"model_name": self.model_name, "from": self.model_version, "to": target},
+            )
+            self.model_version = target
         return True
 
     async def predict(self, features: PredictionFeatures) -> InferenceResult:
@@ -188,6 +207,10 @@ class ServingInferenceClient:
         return response.status_code == 200
 
     async def close(self) -> None:
+        if self._follower is not None:
+            self._follower.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._follower
         await self._client.aclose()
 
 
