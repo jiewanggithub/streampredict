@@ -23,6 +23,11 @@ function fmt(value: number | null | undefined, suffix = "", digits = 1) {
   return value === null || value === undefined ? "—" : `${Number(value.toFixed(digits)).toLocaleString()}${suffix}`;
 }
 
+// Serving versions are integers ("2"); show them as "v2". Other labels (e.g. mock builds) pass through.
+function versionLabel(version: string | undefined) {
+  return version && /^\d+$/.test(version) ? `v${version}` : (version ?? "—");
+}
+
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "Unexpected error";
 }
@@ -351,11 +356,11 @@ export function StreamPredictDashboard() {
             <span className="flow-arrow">→</span>
             <ServiceNode name="Redis" detail={connected ? `${fmt(cache?.hit_rate, "% hit")}` : "unknown"} status={redisStatus} />
             <span className="flow-arrow">→</span>
-            <ServiceNode name="Inference" detail={overview ? `${overview.model.backend} · ${overview.model.version}` : "unknown"} status={connected && overview.dependencies.inference === "ok" ? "healthy" : "pending"} />
-            <span className="flow-arrow">→</span>
             <ServiceNode name="Kafka" detail={kafkaDetail} status={kafkaStatus} />
             <span className="flow-arrow">→</span>
-            <ServiceNode name="TorchServe" detail="Phase 2" status="pending" />
+            <ServiceNode name="Consumers" detail={infra?.consumer_replicas != null ? `${infra.consumer_replicas} replicas` : "unknown"} status={kafkaStatus} />
+            <span className="flow-arrow">→</span>
+            <ServiceNode name="Model serving" detail={overview ? `${overview.model.backend} · ${versionLabel(overview.model.version)}` : "unknown"} status={!connected ? "pending" : overview.dependencies.inference === "ok" ? "healthy" : "degraded"} />
           </div>
           <div className="recovery-strip">
             <div>
@@ -386,7 +391,7 @@ export function StreamPredictDashboard() {
               <span className="section-kicker">INTERACTIVE</span>
               <h2>Try a prediction</h2>
             </div>
-            <span className="model-chip">{overview?.model.version ?? "—"}</span>
+            <span className="model-chip">{versionLabel(overview?.model.version)}</span>
           </div>
           <form onSubmit={(event) => void submitPrediction(event)}>
             <label>
@@ -536,7 +541,7 @@ export function StreamPredictDashboard() {
               <span className="section-kicker">MODEL CONTROL</span>
               <h2>Serving model</h2>
             </div>
-            <span className="model-chip">{model?.version ?? "—"}</span>
+            <span className="model-chip">{versionLabel(model?.version)}</span>
           </div>
           <div className="detail-stats">
             <div>
@@ -679,7 +684,7 @@ export function StreamPredictDashboard() {
 
       <footer>
         <span>StreamPredict · synthetic demo environment</span>
-        <span>Phase 2 · Next.js → FastAPI → Redis / Kafka → consumers → mock inference</span>
+        <span>Phase 2 · Next.js → FastAPI → Redis / Kafka → consumers → ONNX Runtime model serving</span>
       </footer>
     </main>
   );
