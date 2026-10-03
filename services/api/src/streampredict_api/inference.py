@@ -181,11 +181,14 @@ class ServingInferenceClient:
                 {"name": "features", "shape": [1, len(values)], "datatype": "FP32", "data": values}
             ],
         }
-        path = f"/v2/models/{self.model_name}/versions/{self.model_version}/infer"
-        try:
-            response = await self._client.post(path, json=body)
-        except httpx.HTTPError as exc:
-            raise InferenceError(f"model serving request failed: {exc!r}") from exc
+        response = await self._infer(body)
+        if response.status_code == 404 and self._follow:
+            # The pinned version was unloaded (promotion or rollback) before the follower noticed
+            # the new default; re-read it and retry once instead of failing the request.
+            previous = self.model_version
+            await self._resolve(force=True)
+            if self.model_version != previous:
+                response = await self._infer(body)
         if response.status_code == 400:
             raise AppError(502, "inference_rejected", "The model rejected the request.")
         if response.status_code != 200:
@@ -194,6 +197,13 @@ class ServingInferenceClient:
         payload: dict[str, Any] = response.json()
         score = round(float(payload["outputs"][0]["data"][0]), 6)
         return InferenceResult(score=score, label=label_for(score))
+
+    async def _infer(self, body: dict[str, Any]) -> httpx.Response:
+        path = f"/v2/models/{self.model_name}/versions/{self.model_version}/infer"
+        try:
+            return await self._client.post(path, json=body)
+        except httpx.HTTPError as exc:
+            raise InferenceError(f"model serving request failed: {exc!r}") from exc
 
     async def ready(self) -> bool:
         if not await self._resolve():

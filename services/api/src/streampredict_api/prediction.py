@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .cache import PredictionCache, prediction_key
+from .cluster_traffic import ClusterTraffic
 from .errors import AppError
 from .inference import InferenceClient, InferenceError, InferenceResult
 from .metrics import PredictionMetrics, RollingWindow
@@ -30,11 +31,13 @@ class PredictionService:
         window: RollingWindow | None,
         inference_timeout_seconds: float,
         max_in_flight: int,
+        cluster_traffic: ClusterTraffic | None = None,
     ) -> None:
         self._cache = cache
         self._inference = inference
         self._metrics = metrics
         self._window = window
+        self._cluster_traffic = cluster_traffic
         self._timeout = inference_timeout_seconds
         self._max_in_flight = max_in_flight
         self._in_flight = 0
@@ -125,6 +128,8 @@ class PredictionService:
             self._metrics.prediction_labels.labels(source, label).inc()
         if self._window is not None:
             self._window.record_prediction(elapsed * 1000, success, cache, label)
+        if self._cluster_traffic is not None:
+            self._cluster_traffic.record(success)
         return round(elapsed * 1000, 2)
 
     async def ready(self) -> bool:

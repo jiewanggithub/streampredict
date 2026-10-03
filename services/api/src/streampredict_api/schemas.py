@@ -42,10 +42,19 @@ class PredictResponse(BaseModel):
     latency_ms: float
 
 
+class EventMetadataIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["api", "dashboard-demo"] = "api"
+    demo_session_id: str | None = Field(default=None, max_length=64)
+
+
 class EventRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     features: PredictionFeatures
+    # Lets the demo orchestrator label its synthetic events; defaults to source "api".
+    metadata: EventMetadataIn | None = None
 
 
 class EventAccepted(BaseModel):
@@ -83,6 +92,12 @@ class DemoSummary(BaseModel):
     peak_rps: int
     cache_hit_rate: float | None
     duration_seconds: float
+    # Event-channel sessions: how the pipeline absorbed the burst (None when not observed).
+    max_consumer_lag: int | None = None
+    peak_consumer_replicas: int | None = None
+    consumer_scaling_events: int | None = None
+    # Seconds from the peak consumer lag until lag was back at or below 10 (None: no backlog).
+    lag_recovery_seconds: float | None = None
 
 
 class DemoStatus(BaseModel):
@@ -105,6 +120,9 @@ class DemoStatus(BaseModel):
 
 
 class TrafficMetrics(BaseModel):
+    # `cluster`: counts summed across gateway replicas via Redis; `replica`: this process only.
+    # Latency percentiles are always sampled from the replica that answered.
+    scope: Literal["cluster", "replica"] = "replica"
     rps: float
     rps_history: list[float]
     p50_ms: float | None
@@ -155,6 +173,32 @@ class ConsumerMember(BaseModel):
     partitions: list[int]
 
 
+class WorkloadStatus(BaseModel):
+    name: str
+    replicas: int
+    ready: int
+    cpu_millicores: float | None = None
+    memory_mib: float | None = None
+    autoscaler: str | None = None
+    min_replicas: int | None = None
+    max_replicas: int | None = None
+    desired_replicas: int | None = None
+    scaling_metric: str | None = None
+
+
+class ScalingEvent(BaseModel):
+    at: datetime
+    target: str
+    message: str
+
+
+class KubernetesStatus(BaseModel):
+    status: DependencyStatus
+    namespace: str
+    workloads: list[WorkloadStatus] = Field(default_factory=list)
+    scaling_events: list[ScalingEvent] = Field(default_factory=list)
+
+
 class InfrastructureMetrics(BaseModel):
     """What the gateway can observe about the deployment today.
 
@@ -169,6 +213,8 @@ class InfrastructureMetrics(BaseModel):
     consumer_replicas: int | None
     replicas_history: list[int]
     members: list[ConsumerMember]
+    # Present when the gateway runs in Kubernetes with KUBERNETES_NAMESPACE set.
+    kubernetes: KubernetesStatus | None = None
 
 
 class ModelVersionInfo(BaseModel):

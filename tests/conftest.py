@@ -29,6 +29,21 @@ class UnavailableRedis:
     async def ping(self) -> None:
         raise RedisConnectionError("connection refused")
 
+    async def mget(self, *_: object, **__: object) -> None:
+        raise RedisConnectionError("connection refused")
+
+    def pipeline(self, *_: object, **__: object) -> "UnavailableRedis":
+        return self
+
+    def incrby(self, *_: object, **__: object) -> None:
+        return None
+
+    def expire(self, *_: object, **__: object) -> None:
+        return None
+
+    async def execute(self) -> None:
+        raise RedisConnectionError("connection refused")
+
     async def aclose(self) -> None:
         return None
 

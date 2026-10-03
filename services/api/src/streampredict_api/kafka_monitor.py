@@ -259,6 +259,12 @@ class KafkaMonitor:
             else [],
         )
 
+    def current_lag(self) -> int | None:
+        return self._samples[-1].lag if self._available and self._samples else None
+
+    def current_replicas(self) -> int | None:
+        return self._samples[-1].replicas if self._available and self._samples else None
+
     def infrastructure(self, platform: str) -> InfrastructureMetrics:
         latest = self._latest if self._available else None
         return InfrastructureMetrics(

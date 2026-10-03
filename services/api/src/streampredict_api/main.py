@@ -19,18 +19,21 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from redis.asyncio import Redis
 
 from .cache import PredictionCache, build_redis
+from .cluster_traffic import ClusterTraffic
 from .config import Settings, get_settings
-from .demo import DemoOrchestrator
+from .demo import DemoControl, DemoOrchestrator, DemoProxy
 from .deployment import DeploymentMonitor
 from .errors import AppError, register_error_handlers
 from .events import (
     DisabledEventPublisher,
+    EventMetadata,
     EventPublisher,
     KafkaEventPublisher,
     new_event,
 )
 from .inference import InferenceClient, build_inference
 from .kafka_monitor import KafkaMonitor, KafkaOffsetSource
+from .kubernetes_monitor import KubernetesMonitor
 from .logs import configure_logging, request_id_var
 from .metrics import ApiMetrics, RollingWindow
 from .prediction import PredictionService
@@ -43,6 +46,7 @@ from .schemas import (
     EventAccepted,
     EventRequest,
     HealthResponse,
+    InfrastructureMetrics,
     MetricsOverview,
     ModelInfo,
     PredictRequest,
@@ -51,6 +55,7 @@ from .schemas import (
     ReleaseRequest,
     TrafficMetrics,
 )
+from .traffic import InProcessSink
 
 logger = logging.getLogger("streampredict.api")
 
@@ -70,10 +75,12 @@ class Container:
     window: RollingWindow
     cache: PredictionCache
     predictions: PredictionService
-    demo: DemoOrchestrator
+    demo: DemoControl
     publisher: EventPublisher
     kafka_monitor: KafkaMonitor | None
     deployment: DeploymentMonitor | None
+    cluster_traffic: ClusterTraffic | None = None
+    kubernetes: KubernetesMonitor | None = None
 
 
 def _default_redis(settings: Settings) -> Redis:
@@ -116,6 +123,25 @@ def _default_deployment(settings: Settings) -> DeploymentMonitor | None:
     if not settings.controller_url:
         return None
     return DeploymentMonitor(settings.controller_url, settings.model_name)
+
+
+def _local_demo(
+    settings: Settings,
+    predictions: PredictionService,
+    publisher: EventPublisher,
+    metrics: ApiMetrics,
+    kafka_monitor: KafkaMonitor | None,
+) -> DemoOrchestrator:
+    """In-process orchestrator for single-replica deployments (Docker Compose)."""
+    return DemoOrchestrator(
+        InProcessSink(predictions, publisher),
+        metrics,
+        max_rps=settings.demo_max_rps,
+        max_duration_seconds=settings.demo_max_duration_seconds,
+        lag_probe=kafka_monitor.current_lag if kafka_monitor else None,
+        replicas_probe=kafka_monitor.current_replicas if kafka_monitor else None,
+        recovery_timeout_seconds=settings.demo_recovery_timeout_seconds,
+    )
 
 
 def get_container(request: Request) -> Container:
@@ -171,6 +197,7 @@ def create_app(
             metrics=metrics,
             window=window,
         )
+        cluster_traffic = ClusterTraffic(redis_client)
         predictions = PredictionService(
             cache,
             inference,
@@ -178,15 +205,20 @@ def create_app(
             window,
             inference_timeout_seconds=settings.inference_timeout_seconds,
             max_in_flight=settings.api_max_in_flight_predictions,
+            cluster_traffic=cluster_traffic,
         )
         publisher, kafka_monitor = kafka_factory(settings, metrics)
-        demo = DemoOrchestrator(
-            predictions,
-            metrics,
-            max_rps=settings.demo_max_rps,
-            max_duration_seconds=settings.demo_max_duration_seconds,
-            publisher=publisher,
-        )
+        demo: DemoControl
+        if settings.demo_orchestrator_url:
+            proxy = DemoProxy(
+                settings.demo_orchestrator_url,
+                max_rps=settings.demo_max_rps,
+                max_duration_seconds=settings.demo_max_duration_seconds,
+            )
+            proxy.start_polling()
+            demo = proxy
+        else:
+            demo = _local_demo(settings, predictions, publisher, metrics, kafka_monitor)
         metrics.model_info.labels(inference.model_name, inference.model_version).set(1)
         deployment = deployment_factory(settings)
         app.state.container = Container(
@@ -206,6 +238,11 @@ def create_app(
             kafka_monitor.start()
         if deployment is not None:
             deployment.start()
+        app.state.container.cluster_traffic = cluster_traffic
+        cluster_traffic.start()
+        if settings.kubernetes_namespace:
+            app.state.container.kubernetes = KubernetesMonitor(settings.kubernetes_namespace)
+            app.state.container.kubernetes.start()
         logger.info(
             "API gateway started",
             extra={"model_name": inference.model_name, "model_version": inference.model_version},
@@ -214,10 +251,13 @@ def create_app(
             yield
         finally:
             await demo.shutdown()
+            await cluster_traffic.stop()
             if kafka_monitor is not None:
                 await kafka_monitor.stop()
             if deployment is not None:
                 await deployment.stop()
+            if app.state.container.kubernetes is not None:
+                await app.state.container.kubernetes.stop()
             await publisher.close()
             await inference.close()
             await redis_client.aclose()
@@ -329,6 +369,7 @@ def create_app(
             request_id=request_id,
             model_name=container.predictions.model_name,
             model_version=container.predictions.model_version,
+            metadata=EventMetadata(**body.metadata.model_dump()) if body.metadata else None,
         )
         receipt = await container.publisher.publish(event)
         return EventAccepted(
@@ -440,12 +481,24 @@ def create_app(
     return app
 
 
+def _infrastructure(container: Container) -> InfrastructureMetrics | None:
+    if container.kafka_monitor is None:
+        return None
+    infrastructure = container.kafka_monitor.infrastructure(container.settings.deployment_platform)
+    if container.kubernetes is not None:
+        infrastructure.kubernetes = container.kubernetes.overview()
+    return infrastructure
+
+
 def _ms(value: float | None) -> float | None:
     return None if value is None else round(value, 2)
 
 
 async def _build_overview(container: Container) -> MetricsOverview:
     snapshot = container.window.snapshot()
+    cluster = (
+        await container.cluster_traffic.read() if container.cluster_traffic is not None else None
+    )
     return MetricsOverview(
         generated_at=datetime.now(UTC),
         window_seconds=container.window.window_seconds,
@@ -460,14 +513,21 @@ async def _build_overview(container: Container) -> MetricsOverview:
             label_distribution=snapshot.label_counts,
         ),
         traffic=TrafficMetrics(
-            rps=snapshot.rps,
-            rps_history=snapshot.rps_history,
+            scope="cluster" if cluster else "replica",
+            rps=cluster.rps if cluster else snapshot.rps,
+            rps_history=cluster.history if cluster else snapshot.rps_history,
             p50_ms=_ms(snapshot.p50_ms),
             p95_ms=_ms(snapshot.p95_ms),
             p99_ms=_ms(snapshot.p99_ms),
-            success_rate=snapshot.success_rate,
-            requests_in_window=snapshot.requests_in_window,
-            errors_in_window=snapshot.errors_in_window,
+            success_rate=(
+                round(100 * (cluster.requests - cluster.errors) / cluster.requests, 3)
+                if cluster.requests
+                else None
+            )
+            if cluster
+            else snapshot.success_rate,
+            requests_in_window=cluster.requests if cluster else snapshot.requests_in_window,
+            errors_in_window=cluster.errors if cluster else snapshot.errors_in_window,
         ),
         cache=CacheMetrics(
             hit_rate=snapshot.hit_rate,
@@ -479,11 +539,7 @@ async def _build_overview(container: Container) -> MetricsOverview:
         dependencies=await _dependency_checks(container),
         demo=container.demo.status(),
         kafka=container.kafka_monitor.overview() if container.kafka_monitor else None,
-        infrastructure=container.kafka_monitor.infrastructure(
-            container.settings.deployment_platform
-        )
-        if container.kafka_monitor
-        else None,
+        infrastructure=_infrastructure(container),
         deployment=container.deployment.overview() if container.deployment else None,
     )
 

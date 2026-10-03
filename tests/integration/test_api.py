@@ -2,10 +2,11 @@
 
 import json
 import time
+from typing import Any
 
 from fastapi.testclient import TestClient
 
-from streampredict_api.kafka_monitor import GroupMember, OffsetSnapshot
+from streampredict_api.kafka_monitor import GroupMember, KafkaMonitor, OffsetSnapshot
 from tests.conftest import ClientFactory, FakeOffsetSource, FakePublisher, fake_kafka
 
 PAYLOAD = {"features": {"amount": 860, "events_per_hour": 4, "distance_km": 120}}
@@ -291,3 +292,37 @@ def test_demo_events_channel_requires_kafka(client: TestClient) -> None:
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "kafka_unavailable"
     assert client.get("/api/v1/demo/status").json()["state"] == "idle"
+
+
+def test_events_demo_waits_for_lag_recovery_and_reports_scaling(make_client: ClientFactory) -> None:
+    publisher = FakePublisher()
+    member = GroupMember(member_id="a", host="h", partitions=(0,))
+    # Lag builds while consumers scale 2 -> 4, then drains below the recovery threshold.
+    snapshots = [
+        OffsetSnapshot(end={0: 100}, committed={0: 100 - lag}, members=(member,) * replicas)
+        for lag, replicas in [(0, 2), (40, 2), (120, 4), (90, 4), (30, 4), (5, 4)]
+    ]
+    source = FakeOffsetSource(snapshots + [snapshots[-1]] * 200)
+
+    def kafka(settings: Any, metrics: Any) -> Any:
+        monitor = KafkaMonitor(
+            source,
+            metrics,
+            topic=settings.kafka_prediction_topic,
+            consumer_group=settings.kafka_consumer_group,
+            interval_seconds=0.15,
+        )
+        return publisher, monitor
+
+    client = make_client(kafka=kafka, demo_max_rps=20, demo_recovery_timeout_seconds=10)
+    client.post(
+        "/api/v1/demo/traffic-spike",
+        json={"profile": "standard", "channel": "events", "duration_seconds": 1},
+    )
+    status = wait_for_state(client, {"completed", "failed"}, timeout=15)
+    summary = status["summary"]
+    assert isinstance(summary, dict)
+    assert summary["max_consumer_lag"] >= 40
+    assert summary["peak_consumer_replicas"] == 4
+    assert summary["consumer_scaling_events"] >= 1
+    assert summary["lag_recovery_seconds"] is not None

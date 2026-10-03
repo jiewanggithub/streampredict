@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # Deployment controller (M6); empty disables release controls and deployment status.
     controller_url: str = ""
 
+    # In-cluster only: namespace whose workloads, HPAs, and pod metrics the dashboard shows.
+    kubernetes_namespace: str = ""
+
     # Shown on the dashboard's infrastructure panel: local, docker-compose, kubernetes.
     deployment_platform: str = "local"
 
@@ -60,6 +63,12 @@ class Settings(BaseSettings):
     demo_max_duration_seconds: int = Field(default=300, ge=1, le=300)
     # The in-process orchestrator runs exactly one session at a time.
     demo_max_concurrent_sessions: int = Field(default=1, ge=1, le=1)
+    # Event-channel demos stay in cooling_down until consumer lag drains, at most this long.
+    demo_recovery_timeout_seconds: float = Field(default=120, ge=0, le=600)
+    # When set, demo endpoints proxy to this standalone orchestrator (multi-replica gateways).
+    demo_orchestrator_url: str = ""
+    # Orchestrator side: the gateway URL its synthetic traffic is sent to.
+    demo_target_url: str = "http://localhost:8000"
     demo_control_token: SecretStr | None = None
 
     @field_validator("demo_control_token", mode="before")

@@ -57,11 +57,40 @@ class PredictionMetrics:
         )
 
 
-class ApiMetrics(PredictionMetrics):
+class DemoMetrics:
+    """Collectors for the demo load generator (in the gateway or the standalone orchestrator)."""
+
+    def __init__(self, registry: CollectorRegistry | None = None) -> None:
+        self.registry = registry or CollectorRegistry()
+        self.demo_active = Gauge(
+            "streampredict_demo_active",
+            "Whether a demo session is generating or draining traffic.",
+            registry=self.registry,
+        )
+        self.demo_target_rps = Gauge(
+            "streampredict_demo_target_rps",
+            "Current target request rate of the demo load generator.",
+            registry=self.registry,
+        )
+        self.demo_sessions = Counter(
+            "streampredict_demo_sessions_total",
+            "Demo sessions by final state and stop reason.",
+            ["state", "reason"],
+            registry=self.registry,
+        )
+        self.demo_dropped = Counter(
+            "streampredict_demo_dropped_requests_total",
+            "Synthetic requests skipped because the in-flight limit was reached.",
+            registry=self.registry,
+        )
+
+
+class ApiMetrics(PredictionMetrics, DemoMetrics):
     """Prometheus collectors owned by one API application instance."""
 
     def __init__(self, registry: CollectorRegistry | None = None) -> None:
-        super().__init__(registry)
+        PredictionMetrics.__init__(self, registry)
+        DemoMetrics.__init__(self, self.registry)
         self.http_requests = Counter(
             "streampredict_http_requests_total",
             "HTTP requests handled by the API gateway.",
@@ -84,27 +113,6 @@ class ApiMetrics(PredictionMetrics):
             "streampredict_model_info",
             "Model currently served by the gateway (value is always 1).",
             ["model_name", "model_version"],
-            registry=self.registry,
-        )
-        self.demo_active = Gauge(
-            "streampredict_demo_active",
-            "Whether a demo session is generating or draining traffic.",
-            registry=self.registry,
-        )
-        self.demo_target_rps = Gauge(
-            "streampredict_demo_target_rps",
-            "Current target request rate of the demo load generator.",
-            registry=self.registry,
-        )
-        self.demo_sessions = Counter(
-            "streampredict_demo_sessions_total",
-            "Demo sessions by final state and stop reason.",
-            ["state", "reason"],
-            registry=self.registry,
-        )
-        self.demo_dropped = Counter(
-            "streampredict_demo_dropped_requests_total",
-            "Synthetic requests skipped because the in-flight limit was reached.",
             registry=self.registry,
         )
         self.events_published = Counter(

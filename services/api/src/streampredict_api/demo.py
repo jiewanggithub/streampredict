@@ -12,14 +12,15 @@ import logging
 import random
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, Protocol
+
+import httpx
 
 from .errors import AppError
-from .events import EventMetadata, EventPublisher, new_event
-from .metrics import ApiMetrics
-from .prediction import PredictionService
+from .metrics import DemoMetrics
 from .schemas import (
     DemoChannel,
     DemoProfile,
@@ -29,6 +30,7 @@ from .schemas import (
     DemoSummary,
     PredictionFeatures,
 )
+from .traffic import TrafficSink
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ ACTIVE_STATES: frozenset[DemoState] = frozenset({"starting", "running", "cooling
 DEFAULT_DURATION_SECONDS: dict[DemoProfile, int] = {"standard": 60, "spike": 90}
 DEFAULT_RATE_FRACTION: dict[DemoProfile, float] = {"standard": 0.4, "spike": 1.0}
 SYNTHETIC_POOL_SIZE = 400
+# Lag at or below this counts as recovered after an event-channel burst.
+RECOVERED_LAG = 10
 
 StopReason = Literal["duration_reached", "manual", "shutdown", "error"]
 
@@ -84,6 +88,13 @@ class _Session:
     ended_monotonic: float | None = None
     stop_reason: StopReason | None = None
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
+    max_lag: int | None = None
+    max_lag_at: float | None = None
+    peak_replicas: int | None = None
+    last_replicas: int | None = None
+    scaling_events: int = 0
+    generation_ended: float | None = None
+    recovery_seconds: float | None = None
 
     @property
     def elapsed(self) -> float:
@@ -94,18 +105,22 @@ class _Session:
 class DemoOrchestrator:
     def __init__(
         self,
-        predictions: PredictionService,
-        metrics: ApiMetrics,
+        sink: TrafficSink,
+        metrics: DemoMetrics,
         max_rps: int,
         max_duration_seconds: int,
         *,
-        publisher: EventPublisher | None = None,
+        lag_probe: Callable[[], int | None] | None = None,
+        replicas_probe: Callable[[], int | None] | None = None,
+        recovery_timeout_seconds: float = 120.0,
         tick_seconds: float = 0.1,
         drain_timeout_seconds: float = 5.0,
         max_in_flight: int = 64,
     ) -> None:
-        self._predictions = predictions
-        self._publisher = publisher
+        self._sink = sink
+        self._lag_probe = lag_probe
+        self._replicas_probe = replicas_probe
+        self._recovery_timeout = recovery_timeout_seconds
         self._metrics = metrics
         self._max_rps = max_rps
         self._max_duration = max_duration_seconds
@@ -121,9 +136,7 @@ class DemoOrchestrator:
         async with self._lock:
             if self._session is not None and self._session.state in ACTIVE_STATES:
                 raise AppError(409, "demo_already_running", "A demo session is already active.")
-            if request.channel == "events" and (
-                self._publisher is None or not await self._publisher.ready()
-            ):
+            if request.channel == "events" and not await self._sink.events_ready():
                 raise AppError(
                     503, "kafka_unavailable", "The event pipeline is unavailable for this demo."
                 )
@@ -156,6 +169,9 @@ class DemoOrchestrator:
         session = self._session
         if session is not None and session.state in {"starting", "running"}:
             session.stop_reason = "manual"
+            session.stop_event.set()
+        elif session is not None and session.state == "cooling_down":
+            # Stop waiting for lag recovery; generation has already ended.
             session.stop_event.set()
         return self.status()
 
@@ -201,6 +217,12 @@ class DemoOrchestrator:
                 if session.cache_lookups
                 else None,
                 duration_seconds=round(session.elapsed, 2),
+                max_consumer_lag=session.max_lag,
+                peak_consumer_replicas=session.peak_replicas,
+                consumer_scaling_events=session.scaling_events
+                if session.peak_replicas is not None
+                else None,
+                lag_recovery_seconds=session.recovery_seconds,
             )
         return DemoStatus(
             session_id=session.session_id,
@@ -228,8 +250,11 @@ class DemoOrchestrator:
             await self._generate(session)
             session.state = "cooling_down"
             session.current_target_rps = 0
+            session.generation_ended = time.monotonic()
             self._metrics.demo_target_rps.set(0)
             await self._drain()
+            if session.channel == "events":
+                await self._await_recovery(session)
             session.state = "completed"
         except asyncio.CancelledError:
             session.state = "failed"
@@ -259,6 +284,43 @@ class DemoOrchestrator:
                 },
             )
 
+    def _observe(self, session: _Session) -> int | None:
+        lag = self._lag_probe() if self._lag_probe else None
+        if lag is not None:
+            now = time.monotonic()
+            if lag > (session.max_lag or 0):
+                # A new peak restarts the recovery clock.
+                session.max_lag, session.max_lag_at, session.recovery_seconds = lag, now, None
+            elif (
+                lag <= RECOVERED_LAG
+                and session.recovery_seconds is None
+                and session.max_lag_at is not None
+                and (session.max_lag or 0) > RECOVERED_LAG
+            ):
+                session.recovery_seconds = round(now - session.max_lag_at, 1)
+        replicas = self._replicas_probe() if self._replicas_probe else None
+        if replicas:
+            if session.last_replicas is not None and replicas != session.last_replicas:
+                session.scaling_events += 1
+            session.last_replicas = replicas
+            session.peak_replicas = max(session.peak_replicas or 0, replicas)
+        return lag
+
+    async def _await_recovery(self, session: _Session) -> None:
+        """Hold the session in cooling_down until consumers drain the backlog (bounded)."""
+        if self._lag_probe is None or session.generation_ended is None:
+            return
+        session.stop_event.clear()
+        deadline = session.generation_ended + self._recovery_timeout
+        while time.monotonic() < deadline and not session.stop_event.is_set():
+            lag = self._observe(session)
+            if lag is None:
+                return  # lag is not observable (Kafka monitor unavailable); nothing to wait for
+            if lag <= RECOVERED_LAG:
+                return
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(session.stop_event.wait(), timeout=0.5)
+
     async def _generate(self, session: _Session) -> None:
         rng = random.Random(session.session_id)
         pool = synthetic_pool(rng)
@@ -273,6 +335,7 @@ class DemoOrchestrator:
                 session.stop_reason = "duration_reached"
                 return
 
+            self._observe(session)
             rate = target_rate(
                 session.profile, elapsed / session.duration_seconds, session.target_rps
             )
@@ -303,35 +366,124 @@ class DemoOrchestrator:
                 await asyncio.wait_for(session.stop_event.wait(), timeout=self._tick)
 
     async def _one(self, session: _Session, features: PredictionFeatures) -> None:
-        if session.channel == "events":
-            await self._publish_one(session, features)
-            return
         try:
-            outcome = await self._predictions.predict(features, source="demo")
+            if session.channel == "events":
+                await self._sink.publish(features, session.session_id)
+                cache = None
+            else:
+                cache = await self._sink.predict(features)
         except AppError:
             session.errors += 1
             return
         session.completed += 1
-        if outcome.cache != "bypass":
+        if cache is not None and cache != "bypass":
             session.cache_lookups += 1
-            session.cache_hits += outcome.cache == "hit"
-
-    async def _publish_one(self, session: _Session, features: PredictionFeatures) -> None:
-        assert self._publisher is not None
-        event = new_event(
-            features,
-            request_id=str(uuid.uuid4()),
-            model_name=self._predictions.model_name,
-            model_version=self._predictions.model_version,
-            metadata=EventMetadata(source="dashboard-demo", demo_session_id=session.session_id),
-        )
-        try:
-            await self._publisher.publish(event)
-        except AppError:
-            session.errors += 1
-            return
-        session.completed += 1
+            session.cache_hits += cache == "hit"
 
     async def _drain(self) -> None:
         if self._in_flight:
             await asyncio.wait(set(self._in_flight), timeout=self._drain_timeout)
+
+
+class DemoControl(Protocol):
+    """What the gateway needs from demo orchestration, in-process or remote."""
+
+    async def start(self, request: DemoStartRequest) -> DemoStatus: ...
+
+    async def stop(self) -> DemoStatus: ...
+
+    def status(self) -> DemoStatus: ...
+
+    async def shutdown(self) -> None: ...
+
+
+class DemoProxy:
+    """Gateway-side client of the standalone demo orchestrator (one per cluster).
+
+    With several gateway replicas, an in-process orchestrator would give each replica its own
+    session state. The proxy forwards controls to the single orchestrator and serves a status
+    cached by a background poll, so every replica reports the same session.
+    """
+
+    def __init__(
+        self,
+        orchestrator_url: str,
+        *,
+        max_rps: int,
+        max_duration_seconds: int,
+        interval_seconds: float = 1.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._client = httpx.AsyncClient(
+            base_url=orchestrator_url.rstrip("/"), timeout=5, transport=transport
+        )
+        self._interval = interval_seconds
+        self._latest = DemoStatus(
+            session_id=None,
+            state="idle",
+            profile=None,
+            channel=None,
+            current_target_rps=0,
+            target_rps=0,
+            max_rps=max_rps,
+            elapsed_seconds=0,
+            duration_seconds=0,
+            max_duration_seconds=max_duration_seconds,
+            generated_requests=0,
+            errors=0,
+            started_at=None,
+            ended_at=None,
+            stop_reason=None,
+            summary=None,
+        )
+        self._task: asyncio.Task[None] | None = None
+        self._stopping = False
+
+    def start_polling(self) -> None:
+        self._task = asyncio.create_task(self._loop(), name="demo-proxy")
+
+    async def _loop(self) -> None:
+        while not self._stopping:
+            with contextlib.suppress(Exception):
+                await self._refresh()
+            await asyncio.sleep(self._interval)
+
+    async def _refresh(self) -> DemoStatus:
+        response = await self._client.get("/demo/status")
+        response.raise_for_status()
+        self._latest = DemoStatus.model_validate(response.json())
+        return self._latest
+
+    async def _post(self, path: str, body: dict[str, object] | None) -> DemoStatus:
+        try:
+            response = await self._client.post(path, json=body)
+        except httpx.HTTPError as exc:
+            raise AppError(
+                503, "orchestrator_unavailable", "The demo orchestrator is unreachable."
+            ) from exc
+        if response.status_code >= 400:
+            error = response.json().get("error", {}) if response.content else {}
+            raise AppError(
+                response.status_code,
+                str(error.get("code", "orchestrator_error")),
+                str(error.get("message", "The demo orchestrator rejected the request.")),
+            )
+        self._latest = DemoStatus.model_validate(response.json())
+        return self._latest
+
+    async def start(self, request: DemoStartRequest) -> DemoStatus:
+        return await self._post("/demo/sessions", request.model_dump())
+
+    async def stop(self) -> DemoStatus:
+        return await self._post("/demo/stop", None)
+
+    def status(self) -> DemoStatus:
+        return self._latest
+
+    async def shutdown(self) -> None:
+        self._stopping = True
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+        await self._client.aclose()

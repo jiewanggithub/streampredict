@@ -75,3 +75,29 @@ def test_rolling_window_expires_old_samples() -> None:
 
     now[0] += 61
     assert window.snapshot().requests_in_window == 0
+
+
+def test_cluster_traffic_sums_replicas_and_includes_unflushed_counts() -> None:
+    import fakeredis
+
+    from streampredict_api.cluster_traffic import ClusterTraffic
+
+    async def run() -> tuple[int, int, int, float]:
+        redis = fakeredis.FakeAsyncRedis()
+        now = [1_000.0]
+        replica_a = ClusterTraffic(redis, clock=lambda: now[0])
+        replica_b = ClusterTraffic(redis, clock=lambda: now[0])
+        for _ in range(30):
+            replica_a.record(success=True)
+        for success in (True, True, False):
+            replica_b.record(success)
+        await replica_a.flush()  # replica_b has not flushed yet
+        seen_by_b = await replica_b.read()
+        seen_by_a = await replica_a.read()
+        assert seen_by_b is not None and seen_by_a is not None
+        return seen_by_b.requests, seen_by_b.errors, seen_by_a.requests, seen_by_b.rps
+
+    requests_b, errors_b, requests_a, rps = asyncio.run(run())
+    assert (requests_b, errors_b) == (33, 1)  # A's flushed counts + B's own pending ones
+    assert requests_a == 30  # B's counts are not visible to A until B flushes
+    assert rps == round(33 / 5, 2)

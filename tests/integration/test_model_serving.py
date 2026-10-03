@@ -226,6 +226,34 @@ def test_client_resolves_latest_version_and_maps_scores() -> None:
     assert seen[-1] == f"/v2/models/{MODEL}/versions/10/infer"
 
 
+def test_client_retries_once_when_its_pinned_version_was_unloaded() -> None:
+    default = ["3"]
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/v2/models/{MODEL}":
+            return httpx.Response(
+                200, json={"versions": ["2", "3"], "parameters": {"served_version": default[0]}}
+            )
+        seen.append(request.url.path)
+        if "/versions/3/" in request.url.path:
+            return httpx.Response(404, json={"error": "version '3' is not loaded"})
+        return httpx.Response(200, json={"outputs": [{"data": [0.2]}]})
+
+    async def run() -> tuple[str, float]:
+        client = mock_serving(handler)
+        await client.start()  # pinned to v3
+        default[0] = "2"  # the controller rolled back and unloaded v3
+        result = await client.predict(
+            PredictionFeatures(amount=1, events_per_hour=2, distance_km=3)
+        )
+        await client.close()
+        return client.model_version, result.score
+
+    assert asyncio.run(run()) == ("2", 0.2)
+    assert [p.split("/")[-2] for p in seen] == ["3", "2"]
+
+
 @pytest.mark.parametrize(
     ("status", "error"),
     [(503, InferenceError), (404, InferenceError), (400, AppError), (None, InferenceError)],
