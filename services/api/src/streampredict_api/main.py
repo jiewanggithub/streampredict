@@ -37,6 +37,7 @@ from .kubernetes_monitor import KubernetesMonitor
 from .logs import configure_logging, request_id_var
 from .metrics import ApiMetrics, RollingWindow
 from .prediction import PredictionService
+from .prometheus_monitor import PrometheusMonitor
 from .schemas import (
     CacheMetrics,
     DemoStartRequest,
@@ -80,6 +81,7 @@ class Container:
     kafka_monitor: KafkaMonitor | None
     deployment: DeploymentMonitor | None
     cluster_traffic: ClusterTraffic | None = None
+    prometheus: PrometheusMonitor | None = None
     kubernetes: KubernetesMonitor | None = None
 
 
@@ -240,6 +242,9 @@ def create_app(
             deployment.start()
         app.state.container.cluster_traffic = cluster_traffic
         cluster_traffic.start()
+        if settings.prometheus_url:
+            app.state.container.prometheus = PrometheusMonitor(settings.prometheus_url)
+            app.state.container.prometheus.start()
         if settings.kubernetes_namespace:
             app.state.container.kubernetes = KubernetesMonitor(settings.kubernetes_namespace)
             app.state.container.kubernetes.start()
@@ -252,6 +257,8 @@ def create_app(
         finally:
             await demo.shutdown()
             await cluster_traffic.stop()
+            if app.state.container.prometheus is not None:
+                await app.state.container.prometheus.stop()
             if kafka_monitor is not None:
                 await kafka_monitor.stop()
             if deployment is not None:
@@ -471,6 +478,9 @@ def create_app(
 
     @app.get("/metrics", include_in_schema=False)
     async def prometheus_metrics(container: ContainerDep) -> Response:
+        in_use, idle = container.cache.connection_counts()
+        container.metrics.redis_connections.labels("in_use").set(in_use)
+        container.metrics.redis_connections.labels("idle").set(idle)
         # The served version can change at runtime (controller promotion or rollback).
         container.metrics.model_info.clear()
         container.metrics.model_info.labels(
@@ -499,6 +509,9 @@ async def _build_overview(container: Container) -> MetricsOverview:
     cluster = (
         await container.cluster_traffic.read() if container.cluster_traffic is not None else None
     )
+    observability = container.prometheus.overview() if container.prometheus is not None else None
+    # Prefer Prometheus's cluster-wide percentiles once it has data for the window.
+    prom = observability if observability and observability.p95_ms is not None else None
     return MetricsOverview(
         generated_at=datetime.now(UTC),
         window_seconds=container.window.window_seconds,
@@ -516,9 +529,10 @@ async def _build_overview(container: Container) -> MetricsOverview:
             scope="cluster" if cluster else "replica",
             rps=cluster.rps if cluster else snapshot.rps,
             rps_history=cluster.history if cluster else snapshot.rps_history,
-            p50_ms=_ms(snapshot.p50_ms),
-            p95_ms=_ms(snapshot.p95_ms),
-            p99_ms=_ms(snapshot.p99_ms),
+            latency_scope="cluster" if prom else "replica",
+            p50_ms=prom.p50_ms if prom else _ms(snapshot.p50_ms),
+            p95_ms=prom.p95_ms if prom else _ms(snapshot.p95_ms),
+            p99_ms=prom.p99_ms if prom else _ms(snapshot.p99_ms),
             success_rate=(
                 round(100 * (cluster.requests - cluster.errors) / cluster.requests, 3)
                 if cluster.requests
@@ -541,6 +555,7 @@ async def _build_overview(container: Container) -> MetricsOverview:
         kafka=container.kafka_monitor.overview() if container.kafka_monitor else None,
         infrastructure=_infrastructure(container),
         deployment=container.deployment.overview() if container.deployment else None,
+        observability=observability,
     )
 
 

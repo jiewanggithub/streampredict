@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     metrics_stream_max_seconds: float = Field(default=300.0, gt=0, le=3_600)
 
     # Empty disables the event pipeline: /api/v1/events answers 503 and readiness omits Kafka.
+    # Prometheus (M7): cluster-wide latency percentiles and alerts for the dashboard.
+    prometheus_url: str = ""
+
     # Deployment controller (M6); empty disables release controls and deployment status.
     controller_url: str = ""
 

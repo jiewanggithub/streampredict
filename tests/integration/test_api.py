@@ -115,6 +115,7 @@ def test_overview_and_prometheus_metrics(client: TestClient) -> None:
     label_series = 'streampredict_prediction_labels_total{label="low_risk",source="api"}'
     assert f"{label_series} 2.0" in metrics
     assert 'route="/api/v1/predict"' in metrics
+    assert 'streampredict_redis_connections{state="idle"}' in metrics
 
 
 def test_demo_runs_to_completion_within_limits(make_client: ClientFactory) -> None:

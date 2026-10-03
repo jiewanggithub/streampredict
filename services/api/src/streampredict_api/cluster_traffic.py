@@ -107,9 +107,12 @@ class ClusterTraffic:
         errors = [
             e + self._pending.get(s, [0, 0])[1] for s, e in zip(seconds, counts[1::2], strict=True)
         ]
+        # RPS over complete seconds only, skipping the newest one: the current second is still
+        # filling and other replicas flush the previous one up to a second late.
+        settled = requests[-(rps_seconds + 2) : -2]
         return ClusterCounts(
             history=[float(r) for r in requests],
             requests=sum(requests),
             errors=sum(errors),
-            rps=round(sum(requests[-rps_seconds:]) / rps_seconds, 2),
+            rps=round(sum(settled) / rps_seconds, 2),
         )

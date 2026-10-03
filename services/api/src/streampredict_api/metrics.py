@@ -49,6 +49,12 @@ class PredictionMetrics:
             buckets=CACHE_BUCKETS,
             registry=self.registry,
         )
+        self.redis_connections = Gauge(
+            "streampredict_redis_connections",
+            "Redis client connections in this process, by state (in_use, idle).",
+            ["state"],
+            registry=self.registry,
+        )
         self.cache_errors = Counter(
             "streampredict_cache_errors_total",
             "Redis cache operations that failed or were skipped by the circuit breaker.",
@@ -76,6 +82,16 @@ class DemoMetrics:
             "streampredict_demo_sessions_total",
             "Demo sessions by final state and stop reason.",
             ["state", "reason"],
+            registry=self.registry,
+        )
+        self.demo_generated = Counter(
+            "streampredict_demo_generated_requests_total",
+            "Synthetic requests or events sent by the demo load generator.",
+            registry=self.registry,
+        )
+        self.demo_elapsed = Gauge(
+            "streampredict_demo_elapsed_seconds",
+            "Elapsed time of the current demo session (0 when idle).",
             registry=self.registry,
         )
         self.demo_dropped = Counter(

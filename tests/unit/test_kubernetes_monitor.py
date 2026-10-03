@@ -31,7 +31,13 @@ HPAS = {
             "status": {
                 "desiredReplicas": 8,
                 "currentMetrics": [
-                    {"type": "External", "external": {"current": {"averageValue": "212500m"}}}
+                    {
+                        "type": "External",
+                        "external": {
+                            "metric": {"name": "s0-kafka-prediction-events"},
+                            "current": {"averageValue": "212500m"},
+                        },
+                    }
                 ],
             },
         },
@@ -42,9 +48,16 @@ HPAS = {
                 "desiredReplicas": 2,
                 "currentMetrics": [
                     {
+                        "type": "External",
+                        "external": {
+                            "metric": {"name": "s1-prometheus"},
+                            "current": {"averageValue": "32990m"},
+                        },
+                    },
+                    {
                         "type": "Resource",
                         "resource": {"name": "cpu", "current": {"averageUtilization": 63}},
-                    }
+                    },
                 ],
             },
         },
@@ -126,7 +139,7 @@ def test_monitor_builds_workload_and_scaling_view() -> None:
     assert consumer.scaling_metric == "lag/pod 212.5"
     assert consumer.cpu_millicores == 200
     assert consumer.memory_mib == 128
-    assert api.scaling_metric == "cpu 63%"
+    assert api.scaling_metric == "rps/pod 33 · cpu 63%"
     assert api.cpu_millicores is None  # no pod metrics for the api component
     assert [e.message[:11] for e in status.scaling_events] == ["New size: 8", "New size: 4"]
 

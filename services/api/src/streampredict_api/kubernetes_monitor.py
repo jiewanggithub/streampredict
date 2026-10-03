@@ -43,18 +43,26 @@ def memory_mib(quantity: str) -> float:
 
 
 def hpa_metric(hpa: dict[str, Any]) -> str | None:
-    """Summarise the first current metric of an autoscaling/v2 HPA status."""
+    """Summarise every current metric of an autoscaling/v2 HPA status, e.g. "rps/pod 32 · cpu 41%".
+
+    KEDA names external metrics after their trigger (`s0-kafka-<topic>`, `s1-prometheus`).
+    """
+    parts = []
     for metric in hpa.get("status", {}).get("currentMetrics") or []:
         if metric.get("type") == "Resource":
             utilization = metric["resource"]["current"].get("averageUtilization")
             if utilization is not None:
-                return f"{metric['resource']['name']} {utilization}%"
-        if metric.get("type") == "External":
+                parts.append(f"{metric['resource']['name']} {utilization}%")
+        elif metric.get("type") == "External":
             current = metric["external"]["current"]
             value = current.get("averageValue") or current.get("value")
+            if value is None:
+                continue
+            name = metric["external"].get("metric", {}).get("name", "")
+            label = "lag/pod" if "kafka" in name else "rps/pod" if "prometheus" in name else name
             # Quantities may be milli-units ("154500m" = 154.5).
-            return f"lag/pod {cpu_millicores(value) / 1000:g}" if value is not None else None
-    return None
+            parts.append(f"{label} {round(cpu_millicores(value) / 1000, 1):g}")
+    return " · ".join(parts) or None
 
 
 class KubernetesMonitor:

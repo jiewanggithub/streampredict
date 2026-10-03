@@ -92,6 +92,7 @@ def test_cluster_traffic_sums_replicas_and_includes_unflushed_counts() -> None:
         for success in (True, True, False):
             replica_b.record(success)
         await replica_a.flush()  # replica_b has not flushed yet
+        now[0] += 2  # rps only counts settled seconds
         seen_by_b = await replica_b.read()
         seen_by_a = await replica_a.read()
         assert seen_by_b is not None and seen_by_a is not None

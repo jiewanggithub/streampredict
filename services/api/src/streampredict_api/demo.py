@@ -207,6 +207,7 @@ class DemoOrchestrator:
                 summary=None,
             )
         summary = None
+        events = session.channel == "events"
         if session.state not in ACTIVE_STATES:
             summary = DemoSummary(
                 total_requests=session.generated,
@@ -217,12 +218,13 @@ class DemoOrchestrator:
                 if session.cache_lookups
                 else None,
                 duration_seconds=round(session.elapsed, 2),
-                max_consumer_lag=session.max_lag,
-                peak_consumer_replicas=session.peak_replicas,
+                # Consumer figures describe the event pipeline; sync sessions bypass it.
+                max_consumer_lag=session.max_lag if events else None,
+                peak_consumer_replicas=session.peak_replicas if events else None,
                 consumer_scaling_events=session.scaling_events
-                if session.peak_replicas is not None
+                if events and session.peak_replicas is not None
                 else None,
-                lag_recovery_seconds=session.recovery_seconds,
+                lag_recovery_seconds=session.recovery_seconds if events else None,
             )
         return DemoStatus(
             session_id=session.session_id,
@@ -272,6 +274,7 @@ class DemoOrchestrator:
             session.ended_monotonic = time.monotonic()
             self._metrics.demo_active.set(0)
             self._metrics.demo_target_rps.set(0)
+            self._metrics.demo_elapsed.set(0)
             self._metrics.demo_sessions.labels(session.state, session.stop_reason or "none").inc()
             logger.info(
                 "Demo session ended",
@@ -336,6 +339,7 @@ class DemoOrchestrator:
                 return
 
             self._observe(session)
+            self._metrics.demo_elapsed.set(round(elapsed, 1))
             rate = target_rate(
                 session.profile, elapsed / session.duration_seconds, session.target_rps
             )
@@ -360,6 +364,7 @@ class DemoOrchestrator:
                 self._in_flight.add(task)
                 task.add_done_callback(self._in_flight.discard)
                 session.generated += 1
+                self._metrics.demo_generated.inc()
                 session.per_second[bucket] = session.per_second.get(bucket, 0) + 1
 
             with contextlib.suppress(TimeoutError):

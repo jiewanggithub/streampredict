@@ -129,6 +129,13 @@ class PredictionCache:
         except CacheUnavailable:
             return
 
+    def connection_counts(self) -> tuple[int, int]:
+        """(in use, idle) connections of the client's pool; zeros if the pool hides them."""
+        pool = getattr(self._client, "connection_pool", None)
+        in_use = len(getattr(pool, "_in_use_connections", ()))
+        idle = len(getattr(pool, "_available_connections", ()))
+        return in_use, idle
+
     async def ping(self) -> bool:
         try:
             return bool(await self._run("ping", lambda: self._client.ping()))

@@ -119,10 +119,30 @@ class DemoStatus(BaseModel):
     summary: DemoSummary | None
 
 
+class AlertInfo(BaseModel):
+    name: str
+    severity: str
+    state: Literal["pending", "firing", "inactive"]
+    summary: str
+    active_at: datetime | None = None
+
+
+class ObservabilityStatus(BaseModel):
+    """Cluster-wide view from Prometheus (M7)."""
+
+    status: DependencyStatus
+    p50_ms: float | None = None
+    p95_ms: float | None = None
+    p99_ms: float | None = None
+    alerts: list[AlertInfo] = Field(default_factory=list)
+
+
 class TrafficMetrics(BaseModel):
     # `cluster`: counts summed across gateway replicas via Redis; `replica`: this process only.
     # Latency percentiles are always sampled from the replica that answered.
     scope: Literal["cluster", "replica"] = "replica"
+    # `cluster`: percentiles from Prometheus over every replica; `replica`: sampled locally.
+    latency_scope: Literal["cluster", "replica"] = "replica"
     rps: float
     rps_history: list[float]
     p50_ms: float | None
@@ -282,6 +302,8 @@ class MetricsOverview(BaseModel):
     infrastructure: InfrastructureMetrics | None = None
     # None when no deployment controller is configured (CONTROLLER_URL is empty).
     deployment: DeploymentStatus | None = None
+    # None when no Prometheus is configured (PROMETHEUS_URL is empty).
+    observability: ObservabilityStatus | None = None
 
 
 class ErrorBody(BaseModel):
