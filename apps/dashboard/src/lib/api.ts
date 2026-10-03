@@ -14,6 +14,10 @@ export type DemoSummary = {
   peak_rps: number;
   cache_hit_rate: number | null;
   duration_seconds: number;
+  max_consumer_lag?: number | null;
+  peak_consumer_replicas?: number | null;
+  consumer_scaling_events?: number | null;
+  lag_recovery_seconds?: number | null;
 };
 
 export type DemoStatus = {
@@ -55,6 +59,27 @@ export type InfrastructureMetrics = {
   consumer_replicas: number | null;
   replicas_history: number[];
   members: { member_id: string; host: string; partitions: number[] }[];
+  kubernetes?: KubernetesStatus | null;
+};
+
+export type WorkloadStatus = {
+  name: string;
+  replicas: number;
+  ready: number;
+  cpu_millicores: number | null;
+  memory_mib: number | null;
+  autoscaler: string | null;
+  min_replicas: number | null;
+  max_replicas: number | null;
+  desired_replicas: number | null;
+  scaling_metric: string | null;
+};
+
+export type KubernetesStatus = {
+  status: DependencyStatus;
+  namespace: string;
+  workloads: WorkloadStatus[];
+  scaling_events: { at: string; target: string; message: string }[];
 };
 
 export type ModelVersionInfo = { version: string; profile: string; description: string; status: string; auc: number | null };
@@ -92,6 +117,7 @@ export type MetricsOverview = {
     label_distribution: Record<RiskLabel, number>;
   };
   traffic: {
+    scope?: "cluster" | "replica";
     rps: number;
     rps_history: number[];
     p50_ms: number | null;

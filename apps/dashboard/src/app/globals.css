@@ -149,6 +149,11 @@ footer { display: flex; justify-content: space-between; padding: 28px 3px 0; col
 .release-history li.promoted { border-left-color: var(--mint); }.release-history li.rolled_back, .release-history li.rejected, .release-history li.manual_rollback { border-left-color: var(--red); }
 .release-active { margin: 0; padding: 8px 11px; border-radius: 6px; color: var(--amber); background: rgba(255,183,93,.08); font-size: 11px; }
 @media (max-width: 900px) { .release-layout { grid-template-columns: 1fr; } }
+.workload-list, .scaling-events { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.workload-list li { display: grid; gap: 4px; padding: 9px 11px; border-radius: 9px; background: #091522; }
+.workload-list li > div { display: flex; justify-content: space-between; align-items: center; }
+.workload-list strong { font: 700 12px var(--font-mono); }.workload-list small { color: var(--muted); font-size: 10px; }
+.scaling-events { margin-top: 10px; }.scaling-events li { color: var(--muted); font-size: 10px; }
 .panel-note { display: block; margin-top: 8px; color: var(--muted); font-family: var(--font-mono); font-size: 10px; }
 .detail-stats strong, .model-row strong { overflow-wrap: anywhere; }
 .detail-stats div:nth-child(n+4) { margin-top: 0; }

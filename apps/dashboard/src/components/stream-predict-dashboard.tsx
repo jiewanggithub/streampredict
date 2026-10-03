@@ -10,6 +10,7 @@ const ACTIVE_STATES = new Set(["starting", "running", "cooling_down"]);
 
 const RISK_LABELS: Record<RiskLabel, string> = { low_risk: "Low risk", review: "Review", high_risk: "High risk" };
 const LABEL_ORDER: RiskLabel[] = ["low_risk", "review", "high_risk"];
+const SCALED_WORKLOADS = new Set(["api", "consumer", "model-serving"]);
 const OUTCOME_LABELS: Record<string, string> = { promoted: "Promoted", rolled_back: "Rolled back", rejected: "Rejected", manual_rollback: "Manual rollback" };
 
 type Tone = "info" | "success" | "warning";
@@ -101,7 +102,7 @@ export function StreamPredictDashboard() {
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [transport, setTransport] = useState<"sse" | "polling">("sse");
   const eventId = useRef(0);
-  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; replicas?: number; release?: string; releaseStage?: string; demoState?: string; sessionId?: string | null }>({ connected: null });
+  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; replicas?: number; release?: string; rescale?: string; releaseStage?: string; demoState?: string; sessionId?: string | null }>({ connected: null });
 
   const addEvent = useCallback((message: string, tone: Tone = "info") => {
     eventId.current += 1;
@@ -113,6 +114,11 @@ export function StreamPredictDashboard() {
     (next: MetricsOverview) => {
       const prev = previous.current;
       if (prev.connected !== true) addEvent(`Connected to API · serving ${next.model.name} ${next.model.version}`, "success");
+      const rescale = next.infrastructure?.kubernetes?.scaling_events[0];
+      const rescaleKey = rescale ? `${rescale.at}-${rescale.message}` : undefined;
+      if (prev.connected && rescale && rescaleKey !== prev.rescale) {
+        addEvent(`Autoscaler · ${rescale.target.replace("keda-hpa-", "")}: ${rescale.message.split(";")[0]}`, "success");
+      }
       const replicas = next.infrastructure?.consumer_replicas ?? undefined;
       if (prev.replicas !== undefined && replicas !== undefined && replicas !== prev.replicas) {
         addEvent(`Consumer replicas ${prev.replicas} → ${replicas}; partitions rebalanced`, replicas > prev.replicas ? "success" : "info");
@@ -143,10 +149,16 @@ export function StreamPredictDashboard() {
         if (demo.state === "running") addEvent(`${demo.profile === "spike" ? "Traffic spike" : "Standard demo"} running ${demo.channel === "events" ? "through Kafka " : ""}· target ${demo.target_rps} RPS for ${demo.duration_seconds}s`);
         if (demo.state === "cooling_down") addEvent("Traffic generation stopped; draining in-flight requests", "info");
         if (demo.state === "completed" && demo.summary)
-          addEvent(`Demo completed · ${demo.summary.total_requests} requests, peak ${demo.summary.peak_rps} RPS, ${demo.summary.errors} errors`, "success");
+          addEvent(
+            `Demo completed · ${demo.summary.total_requests} requests, peak ${demo.summary.peak_rps} RPS, ${demo.summary.errors} errors` +
+              (demo.summary.max_consumer_lag != null ? ` · max lag ${demo.summary.max_consumer_lag}` : "") +
+              (demo.summary.peak_consumer_replicas != null ? ` · consumers peaked at ${demo.summary.peak_consumer_replicas}` : "") +
+              (demo.summary.lag_recovery_seconds != null ? ` · backlog drained ${demo.summary.lag_recovery_seconds}s after its peak` : ""),
+            "success",
+          );
         if (demo.state === "failed") addEvent(`Demo ended early (${demo.stop_reason ?? "unknown"})`, "warning");
       }
-      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, replicas: replicas ?? prev.replicas, release: latestKey, releaseStage: next.deployment?.active?.stage, demoState: demo.state, sessionId: demo.session_id };
+      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, replicas: replicas ?? prev.replicas, release: latestKey, rescale: rescaleKey, releaseStage: next.deployment?.active?.stage, demoState: demo.state, sessionId: demo.session_id };
       setOverview(next);
       setConnectionError(null);
     },
@@ -287,6 +299,7 @@ export function StreamPredictDashboard() {
   const kafka = overview?.kafka ?? null;
   const infra = overview?.infrastructure ?? null;
   const deployment = overview?.deployment ?? null;
+  const kube = infra?.kubernetes ?? null;
   const model = overview?.model ?? null;
   const labelTotal = model ? LABEL_ORDER.reduce((sum, label) => sum + model.label_distribution[label], 0) : 0;
   const eventsDemo = active && overview?.demo.channel === "events";
@@ -375,7 +388,7 @@ export function StreamPredictDashboard() {
         {eventsDemo ? (
           <MetricCard label="EVENTS / SECOND" value={fmt(kafka?.incoming_rate, "", 1)} detail={`Async demo via Kafka · ${fmt(traffic?.rps, " sync req/s", 1)}`} tone="cyan" />
         ) : (
-          <MetricCard label="REQUESTS / SECOND" value={fmt(traffic?.rps, "", 1)} detail={active ? "Synthetic demo traffic + API" : "5-second average"} tone="cyan" history={history} />
+          <MetricCard label="REQUESTS / SECOND" value={fmt(traffic?.rps, "", 1)} detail={`${active ? "Synthetic demo traffic + API" : "5-second average"}${traffic?.scope === "cluster" ? " · all replicas" : ""}`} tone="cyan" history={history} />
         )}
         <MetricCard label="P95 LATENCY" value={fmt(traffic?.p95_ms, " ms")} detail={traffic?.p50_ms != null ? `p50 ${fmt(traffic.p50_ms, " ms")} · p99 ${fmt(traffic.p99_ms, " ms")}` : "No traffic in the last 60s"} tone="violet" />
         <MetricCard label="SUCCESS RATE" value={fmt(traffic?.success_rate, "%", 2)} detail={traffic ? `${traffic.errors_in_window} errors · ${traffic.requests_in_window.toLocaleString()} requests in 60s` : "Waiting for data"} tone="mint" />
@@ -663,11 +676,42 @@ export function StreamPredictDashboard() {
           <div className="panel-heading">
             <div>
               <span className="section-kicker">INFRASTRUCTURE</span>
-              <h2>Consumer replicas</h2>
+              <h2>{kube ? "Workloads & autoscaling" : "Consumer replicas"}</h2>
             </div>
-            <span className="mono">{infra?.platform ?? "—"}</span>
+            <span className="mono">{kube ? `k8s · ${kube.namespace}` : (infra?.platform ?? "—")}</span>
           </div>
-          {infra?.status === "ok" ? (
+          {kube?.status === "ok" ? (
+            <>
+              <ul className="workload-list">
+                {kube.workloads
+                  .filter((w) => SCALED_WORKLOADS.has(w.name))
+                  .map((w) => (
+                    <li key={w.name}>
+                      <div>
+                        <strong>{w.name}</strong>
+                        <span className={w.ready < w.replicas ? "scaling-label" : "mono-text"}>
+                          {w.ready}/{w.replicas} pods{w.desired_replicas != null && w.desired_replicas !== w.replicas ? ` → ${w.desired_replicas}` : ""}
+                        </span>
+                      </div>
+                      <small>
+                        {w.autoscaler ? `${w.min_replicas}–${w.max_replicas} · ${w.scaling_metric ?? "metric pending"}` : "fixed replicas"} · CPU {fmt(w.cpu_millicores, "m", 0)} · mem {fmt(w.memory_mib, " MiB", 0)}
+                      </small>
+                    </li>
+                  ))}
+              </ul>
+              {kube.scaling_events.length ? (
+                <ul className="scaling-events">
+                  {kube.scaling_events.slice(0, 3).map((e) => (
+                    <li key={`${e.at}-${e.message}`}>
+                      <span className="mono-text">{new Date(e.at).toLocaleTimeString([], { hour12: false })}</span> {e.target.replace("keda-hpa-", "")}: {e.message.split(";")[0]}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-state">No scaling events yet. Start a traffic spike: consumer lag drives KEDA to add pods.</p>
+              )}
+            </>
+          ) : infra?.status === "ok" ? (
             <>
               <div className="detail-stats">
                 <div>
@@ -695,11 +739,11 @@ export function StreamPredictDashboard() {
               ) : (
                 <p className="empty-state">No consumers are in the group; events queue up in Kafka until one joins.</p>
               )}
+              <small className="panel-note">Pod CPU, memory, and autoscaling appear when the stack runs on Kubernetes (make k8s-up).</small>
             </>
           ) : (
             <p className="empty-state">{infra ? "Kafka is unreachable, so consumer membership is unknown." : "Consumer replicas are read from Kafka, which is disabled."}</p>
           )}
-          <small className="panel-note">Pod CPU, memory, and HPA scaling events arrive with Kubernetes (M9).</small>
         </article>
 
         <article className="panel release-panel">
