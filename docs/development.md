@@ -44,6 +44,7 @@ credentials.
 | `make up` / `make down` / `make logs` | Redis, Kafka, the API gateway, 2 consumer workers, and the dashboard |
 | `make api-dev` | API gateway with auto-reload on <http://localhost:8000> (OpenAPI at `/docs`) |
 | `make consumer-dev` | One consumer worker on the host against Kafka at `localhost:9092` |
+| MLflow UI | <http://localhost:5001> once `make up` runs (registry, training and deployment runs) |
 | `make serving-dev` | Model-serving service on <http://localhost:8001> with the committed model repository |
 | `make dashboard-install && make dashboard-dev` | Next.js dashboard on <http://localhost:3000> |
 
@@ -54,6 +55,7 @@ host-side `make api-dev` defaults to the in-process mock unless `INFERENCE_BACKE
 `CONSUMER_REPLICAS=4 make up` runs more workers (at most 12, the partition count).
 
 Operating the event pipeline (lag, dead letters, replay): [`runbooks/kafka-event-pipeline.md`](runbooks/kafka-event-pipeline.md).
+Releasing and rolling back models: [`runbooks/model-releases.md`](runbooks/model-releases.md).
 
 ## Models
 

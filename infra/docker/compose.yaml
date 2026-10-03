@@ -1,5 +1,6 @@
-# Local stack: Redis, Kafka (KRaft, single broker), the model-serving service (ONNX Runtime),
-# the FastAPI gateway, consumer workers, and the dashboard.
+# Local stack: Redis, Kafka (KRaft, single broker), the model lifecycle (Postgres + SeaweedFS +
+# MLflow + deployment controller), model serving (ONNX Runtime), the FastAPI gateway, consumer
+# workers, and the dashboard.
 # Usage from the repository root: make up / make down / make logs
 name: streampredict
 
@@ -69,10 +70,107 @@ services:
         create prediction-events-dlq 3 604800000
     restart: "no"
 
+  # --- model lifecycle (M6) ---------------------------------------------------------------------
+
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow
+      POSTGRES_DB: mlflow
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # S3-compatible artifact storage (MinIO's community edition is archived).
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333",
+              "-s3.config=/etc/seaweedfs/s3.json", "-master.volumeSizeLimitMB=64"]
+    volumes:
+      - seaweedfs-data:/data
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status > /dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mlflow:
+    build: ./mlflow
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://seaweedfs:8333
+      AWS_ACCESS_KEY_ID: streampredict
+      AWS_SECRET_ACCESS_KEY: streampredict-dev-secret
+      MLFLOW_ARTIFACT_BUCKET: mlflow-artifacts
+    command:
+      - sh
+      - -c
+      - >-
+        python /opt/init_bucket.py &&
+        mlflow server --host 0.0.0.0 --port 5000 --workers 2
+        --backend-store-uri postgresql://mlflow:mlflow@postgres:5432/mlflow
+        --artifacts-destination s3://mlflow-artifacts/
+        --allowed-hosts "mlflow,mlflow:5000,localhost,localhost:5001,127.0.0.1:5001"
+    # Host port 5001: macOS reserves 5000 for AirPlay. UI at http://localhost:5001
+    ports:
+      - "5001:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  # Registers the committed demo versions (v1 baseline, v2 improved, v3 skewed) once.
+  registry-seed:
+    build:
+      context: ../..
+      dockerfile: services/model-controller/Dockerfile
+    command: ["python", "-m", "streampredict_controller.seed",
+              "--repository", "/app/ml/artifacts/model_repository"]
+    environment:
+      CONTROLLER_MLFLOW_TRACKING_URI: http://mlflow:5000
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    restart: "no"
+
+  model-controller:
+    build:
+      context: ../..
+      dockerfile: services/model-controller/Dockerfile
+    environment:
+      CONTROLLER_MLFLOW_TRACKING_URI: http://mlflow:5000
+      CONTROLLER_SERVING_URL: http://model-serving:8000
+      CONTROLLER_DEPLOYED_REPOSITORY: /models
+      CONTROLLER_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - deployed-models:/models
+    depends_on:
+      registry-seed:
+        condition: service_completed_successfully
+      model-serving:
+        condition: service_started
+    stop_grace_period: 15s
+
   model-serving:
     build: ../../services/model-serving
     environment:
       SERVING_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Deployed versions are managed by model-controller through this shared volume.
+      SERVING_MODEL_REPOSITORY: /models
+    volumes:
+      - deployed-models:/models
     # Exposed for local inspection (curl localhost:8001/v2/models/streampredict-demo).
     ports:
       - "8001:8000"
@@ -95,6 +193,7 @@ services:
       DEMO_CONTROL_TOKEN: ${DEMO_CONTROL_TOKEN:-}
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       DEPLOYMENT_PLATFORM: docker-compose
+      CONTROLLER_URL: http://model-controller:8000
     ports:
       - "8000:8000"
     depends_on:
@@ -102,7 +201,7 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
-      model-serving:
+      model-controller:
         condition: service_healthy
     stop_grace_period: 15s
 
@@ -126,7 +225,7 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
-      model-serving:
+      model-controller:
         condition: service_healthy
     stop_grace_period: 15s
 
@@ -143,3 +242,6 @@ services:
 
 volumes:
   kafka-data:
+  postgres-data:
+  seaweedfs-data:
+  deployed-models:

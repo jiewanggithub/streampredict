@@ -26,7 +26,7 @@ StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 D
 | M3 | Kafka Event Pipeline | `已实现` | 实现事件生产、缓冲、消费与消费积压观测 |
 | M4 | Redis Feature & Cache Layer | `正在实现` | 提供在线特征读取和预测结果缓存 |
 | M5 | ONNX Runtime Model Serving | `正在实现` | 托管版本化模型并执行真实推理 |
-| M6 | MLflow + S3 Model Lifecycle | `未开始` | 管理模型版本、制品、Champion/Challenger 与回滚 |
+| M6 | MLflow + S3 Model Lifecycle | `已实现` | 管理模型版本、制品、Champion/Challenger 与回滚 |
 | M7 | Prometheus Observability | `未开始` | 统一采集 API、Kafka、Redis、模型和集群指标 |
 | M8 | Demo Orchestrator & Load Generator | `正在实现` | 安全地触发流量尖峰并展示系统反馈闭环 |
 | M9 | Kubernetes Deployment & HPA | `未开始` | 部署各服务并基于 CPU、RPS 和 Kafka lag 扩缩容 |
@@ -107,7 +107,7 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 - [x] 实时指标：展示 RPS、p50/p95/p99 latency、success rate。
 - [x] Kafka 面板：展示 incoming events、consumer throughput 和 consumer lag。
 - [ ] Redis 面板：展示 cache hit rate、miss rate 和 lookup latency。
-- [ ] Model 面板：展示 Champion / Challenger、版本、错误率和回滚事件。（已展示版本、后端、错误率与预测分布；Champion / Challenger 与回滚依赖 M6）
+- [x] Model 面板：展示 Champion / Challenger、版本、错误率和回滚事件（另含预测分布、发布控制与发布历史）。
 - [ ] Infrastructure 面板：展示 Pod 数量、CPU、内存和 HPA scaling events。（已展示 Consumer 副本数、分区分配与扩缩容事件；Pod CPU / 内存与 HPA 依赖 M9）
 - [x] 使用 SSE 或 WebSocket 接收实时更新；轮询可作为第一版实现。
 - [x] 提供加载、空数据、断线、错误和 Demo 完成状态。
@@ -197,21 +197,23 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 
 验证记录：本地 Compose 中同步预测 p50 约 2 ms、p95 约 15 ms（含 Redis 缓存命中）；100 RPS 的 Kafka spike 共 1,084 个事件全部经推理服务处理，0 错误；并发请求被动态 batching 合并（157 次推理合并为 104 个批次）。Kubernetes 中的运行将在 M9 验证，届时标记为 `已实现`。
 
-### M6 - MLflow + S3 Model Lifecycle `未开始`
+### M6 - MLflow + S3 Model Lifecycle `已实现`
 
-负责模型追踪、注册、制品存储、发布和回滚。
+负责模型追踪、注册、制品存储、发布和回滚。发布权威是 [`services/model-controller`](services/model-controller)：它读取 MLflow Registry，管理推理服务的模型仓库（共享卷）并执行门禁。
 
 需要实现：
 
-- [ ] MLflow Tracking Server 与数据库后端。
-- [ ] S3 或本地兼容对象存储保存模型制品。
-- [ ] 记录参数、指标、数据版本和代码版本。
-- [ ] 实现 Champion / Challenger 流程。
-- [ ] 发布前进行模型签名与兼容性检查。
-- [ ] 部署记录与当前生产版本可追踪。
-- [ ] 健康门禁失败时回滚至上一个稳定版本。
+- [x] MLflow Tracking Server 与数据库后端（Postgres）。
+- [x] S3 兼容对象存储保存模型制品：SeaweedFS（MinIO 社区版已归档停止发布镜像），MLflow 以代理模式读写制品。
+- [x] 记录参数、指标、数据版本和代码版本：训练 run 记录超参数、AUC 等指标、`synthetic(seed, samples)` 数据版本与 Git commit。
+- [x] 实现 Champion / Challenger 流程：`champion` alias 指向生产版本；候选版本经门禁后晋升，旧 champion 保留为热备。
+- [x] 发布前进行模型签名与兼容性检查：输入输出签名与特征顺序必须与线上契约一致，离线 AUC 不得低于阈值或明显退化。
+- [x] 部署记录与当前生产版本可追踪：每次发布是 `streampredict-deployments` 实验中的一个 run（结果、原因、门禁指标），版本带 `status` 标签。
+- [x] 健康门禁失败时回滚至上一个稳定版本：切流后用生产形态的参考输入验证新版本，输出分布相对其训练时分布的 PSI、高风险率、延迟或错误率超标即自动切回。
 
 验收条件：任意线上模型可以追溯到其训练记录和制品，并能完成一次可观察的版本升级与回滚。
+
+验证记录：本地 Compose 中 v1 → v2 通过门禁晋升（PSI 0.003）；v2 → v3 时 v3 离线 AUC 与 v2 相同（0.778），但它在训练时把金额当作“分”，上线后高风险率从预期的 6.2% 降到 0%（PSI 1.25），约 10 秒内自动回滚到 v2，Dashboard 与 MLflow 均可见全过程。运维说明见 [`docs/runbooks/model-releases.md`](docs/runbooks/model-releases.md)。
 
 ### M7 - Prometheus Observability `未开始`
 
@@ -334,10 +336,11 @@ StreamPredict/
 │   ├── api/                    # FastAPI Gateway
 │   ├── consumer/               # Kafka Consumer workers
 │   ├── demo-orchestrator/      # 受控流量生成与 Demo 状态机
+│   ├── model-controller/       # 发布控制器：门禁、晋升与自动回滚
 │   └── model-serving/          # ONNX Runtime 推理服务与模型仓库
 ├── ml/
-│   ├── training/               # 示例训练流程
-│   ├── evaluation/             # 模型评估与发布门禁
+│   ├── training/               # 示例训练流程（PyTorch -> ONNX）
+│   ├── artifacts/              # 已提交的示例模型版本（用于初始化 Registry）
 │   └── registry/               # MLflow 集成
 ├── infra/
 │   ├── docker/                 # 本地 Docker Compose
@@ -372,9 +375,11 @@ StreamPredict/
 
 已在本地完成：Kafka 事件管道（M3）、ONNX Runtime 推理服务与示例模型（M5），事件携带 `event_id` / `request_id` 贯穿到结果 topic。
 
-### Phase 3 - Model Lifecycle & Observability `未开始`
+### Phase 3 - Model Lifecycle & Observability `正在实现`
 
 接入 MLflow、S3-compatible artifact storage、Prometheus 和完整指标面板。
+
+已完成：MLflow + SeaweedFS 模型生命周期与门禁回滚（M6）；待完成：Prometheus 采集与告警（M7）。
 
 ### Phase 4 - Kubernetes & Autoscaling Demo `未开始`
 
@@ -401,10 +406,10 @@ make check
 conda env update -f environment.yml --prune
 ```
 
-启动本地全栈（Redis + Kafka + 模型推理服务 + FastAPI + Consumer + Dashboard）：
+启动本地全栈（Redis + Kafka + MLflow + 模型推理服务 + 发布控制器 + FastAPI + Consumer + Dashboard）：
 
 ```bash
-make up            # Docker Compose：Dashboard http://localhost:3000，API http://localhost:8000/docs
+make up            # Docker Compose：Dashboard http://localhost:3000，API http://localhost:8000/docs，MLflow http://localhost:5001
 make test-kafka    # 在运行中的 Kafka 上执行事件管道测试
 make down
 

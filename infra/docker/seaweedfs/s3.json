@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "mlflow",
+      "credentials": [{ "accessKey": "streampredict", "secretKey": "streampredict-dev-secret" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}
