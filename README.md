@@ -22,8 +22,8 @@ StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 D
 | --- | --- | --- | --- |
 | M0 | 项目基础与开发环境 | `已实现` | 建立可复现的本地开发环境、目录与工程规范 |
 | M1 | React / Next.js Demo Dashboard | `正在实现` | 给用户一个可操作、可观察系统变化的 Demo 页面 |
-| M2 | FastAPI API Gateway | `正在实现` | 提供预测、Demo 控制、健康检查和指标接口 |
-| M3 | Kafka Event Pipeline | `未开始` | 实现事件生产、缓冲、消费与消费积压观测 |
+| M2 | FastAPI API Gateway | `已实现` | 提供预测、Demo 控制、健康检查和指标接口 |
+| M3 | Kafka Event Pipeline | `已实现` | 实现事件生产、缓冲、消费与消费积压观测 |
 | M4 | Redis Feature & Cache Layer | `正在实现` | 提供在线特征读取和预测结果缓存 |
 | M5 | TorchServe Inference Service | `未开始` | 托管版本化模型并执行真实推理 |
 | M6 | MLflow + S3 Model Lifecycle | `未开始` | 管理模型版本、制品、Champion/Challenger 与回滚 |
@@ -105,7 +105,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 - [x] 在线预测：填写样例输入并展示预测结果、耗时与 cache hit 状态。
 - [x] Demo 控制：提供 **Run Demo**、**Start Traffic Spike** 和 **Stop Demo**。
 - [x] 实时指标：展示 RPS、p50/p95/p99 latency、success rate。
-- [ ] Kafka 面板：展示 incoming events、consumer throughput 和 consumer lag。
+- [x] Kafka 面板：展示 incoming events、consumer throughput 和 consumer lag。
 - [ ] Redis 面板：展示 cache hit rate、miss rate 和 lookup latency。
 - [ ] Model 面板：展示 Champion / Challenger、版本、错误率和回滚事件。
 - [ ] Infrastructure 面板：展示 Pod 数量、CPU、内存和 HPA scaling events。
@@ -114,7 +114,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 验收条件：用户不需要命令行，即可触发一次受控 Demo 并理解系统发生了什么。
 
-### M2 - FastAPI API Gateway `正在实现`
+### M2 - FastAPI API Gateway `已实现`
 
 系统统一入口，负责同步预测、Demo 控制和前端所需的聚合数据。
 
@@ -125,7 +125,7 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 | `GET` | `/health` | 进程健康检查 | `已实现` |
 | `GET` | `/ready` | Redis、Kafka、TorchServe 依赖就绪检查 | `已实现` |
 | `POST` | `/api/v1/predict` | 同步预测 | `已实现` |
-| `POST` | `/api/v1/events` | 接收并发布异步预测事件 | `未开始` |
+| `POST` | `/api/v1/events` | 接收并发布异步预测事件 | `已实现` |
 | `POST` | `/api/v1/demo/traffic-spike` | 启动受控流量尖峰 | `已实现` |
 | `POST` | `/api/v1/demo/stop` | 停止当前 Demo | `已实现` |
 | `GET` | `/api/v1/demo/status` | 查询 Demo 状态 | `已实现` |
@@ -143,23 +143,25 @@ Prometheus <- FastAPI / Kafka / Redis / TorchServe / Kubernetes
 
 验收条件：API 能处理同步预测、异步事件和 Demo 控制，并暴露可采集指标。
 
-当前缺口：`POST /api/v1/events` 依赖 M3 Kafka Producer；推理调用的重试将在接入 TorchServe（M5）时补充。
+说明：异步事件的失败重试由 Consumer 负责（M3）；同步路径调用 TorchServe 的重试将随 M5 接入。
 
-### M3 - Kafka Event Pipeline `未开始`
+### M3 - Kafka Event Pipeline `已实现`
 
 负责高吞吐异步事件处理，并把流量尖峰与在线推理解耦。
 
 需要实现：
 
-- [ ] 定义 `prediction-events`、`prediction-results` 和 dead-letter topic。
-- [ ] FastAPI Producer 发布带 schema version、request ID 和时间戳的事件。
-- [ ] Consumer Group 批量拉取、处理和提交 offset。
-- [ ] 失败重试、幂等处理和 dead-letter queue。
-- [ ] Consumer lag、吞吐、失败率和处理耗时指标。
-- [ ] 配置 partition、retention 和 consumer concurrency。
-- [ ] 本地 Docker Compose Kafka 环境。
+- [x] 定义 `prediction-events`、`prediction-results` 和 dead-letter topic。
+- [x] FastAPI Producer 发布带 schema version、request ID 和时间戳的事件。
+- [x] Consumer Group 批量拉取、处理和提交 offset。
+- [x] 失败重试、幂等处理和 dead-letter queue。
+- [x] Consumer lag、吞吐、失败率和处理耗时指标。
+- [x] 配置 partition、retention 和 consumer concurrency。
+- [x] 本地 Docker Compose Kafka 环境。
 
 验收条件：在突发流量下不丢事件，Consumer 可以水平扩展，失败事件可定位和重放。
+
+验证记录：本地 Compose 中 100 RPS 的 spike 共发布 1,088 个事件，产生 1,088 个结果；2 个 Consumer 各分得 6 个 partition；`make test-kafka` 在真实 broker 上验证结果恰好一次、重复投递去重、dead-letter 与重放。运维说明见 [`docs/runbooks/kafka-event-pipeline.md`](docs/runbooks/kafka-event-pipeline.md)。
 
 ### M4 - Redis Feature & Cache Layer `正在实现`
 
@@ -354,15 +356,17 @@ StreamPredict/
 
 ## 实施阶段
 
-### Phase 1 - Local Vertical Slice `正在实现`
+### Phase 1 - Local Vertical Slice `已实现`
 
 实现 Dashboard -> FastAPI -> Redis -> mock inference 的最小闭环，同时建立测试和 Docker Compose。
 
-代码、单元/集成测试与 Compose 配置已完成；待在 Docker 环境中验证 `make up` 全栈启动后标记为 `已实现`。
+已通过 `make up` 验证 Redis、API 与 Dashboard 全栈启动。
 
-### Phase 2 - Streaming Pipeline `未开始`
+### Phase 2 - Streaming Pipeline `正在实现`
 
 接入 Kafka Producer / Consumer，加入真实 TorchServe 推理和端到端事件追踪。
+
+Kafka 事件管道（M3）已完成；待完成 TorchServe 推理服务（M5）。
 
 ### Phase 3 - Model Lifecycle & Observability `未开始`
 
@@ -393,10 +397,11 @@ make check
 conda env update -f environment.yml --prune
 ```
 
-启动 Phase 1 本地闭环（Redis + FastAPI + Dashboard）：
+启动本地全栈（Redis + Kafka + FastAPI + Consumer + Dashboard）：
 
 ```bash
 make up            # Docker Compose：Dashboard http://localhost:3000，API http://localhost:8000/docs
+make test-kafka    # 在运行中的 Kafka 上执行事件管道测试
 make down
 
 # 或不使用 Docker 分别启动（API 在 Redis 不可用时降级为 cache bypass）

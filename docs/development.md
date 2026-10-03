@@ -37,19 +37,25 @@ Copy `.env.example` to `.env` and replace only values needed for local developme
 ignored by Git and must never be committed. The checked-in example contains placeholders, not real
 credentials.
 
-## Running the Phase 1 stack
+## Running the local stack
 
 | Command | What it starts |
 | --- | --- |
-| `make up` / `make down` / `make logs` | Redis, the API gateway, and the dashboard via Docker Compose |
+| `make up` / `make down` / `make logs` | Redis, Kafka, the API gateway, 2 consumer workers, and the dashboard |
 | `make api-dev` | API gateway with auto-reload on <http://localhost:8000> (OpenAPI at `/docs`) |
+| `make consumer-dev` | One consumer worker on the host against Kafka at `localhost:9092` |
 | `make dashboard-install && make dashboard-dev` | Next.js dashboard on <http://localhost:3000> |
 
-Without Redis the API keeps serving predictions with `cache: "bypass"` and `/ready` reports
-`degraded`. Inference is a deterministic mock until TorchServe lands in M5.
+Without Redis the API keeps serving predictions with `cache: "bypass"`; without Kafka,
+`POST /api/v1/events` answers 503 and synchronous predictions are unaffected. `/ready` reports
+`degraded` in both cases. Inference is a deterministic mock until TorchServe lands in M5.
+`CONSUMER_REPLICAS=4 make up` runs more workers (at most 12, the partition count).
+
+Operating the event pipeline (lag, dead letters, replay): [`runbooks/kafka-event-pipeline.md`](runbooks/kafka-event-pipeline.md).
 
 `services/api/requirements.in` lists direct runtime dependencies; `make api-lock` regenerates the
-pinned `requirements.txt` used by both the Conda environment and the Docker image.
+pinned `requirements.txt` used by the Conda environment and both Docker images (the consumer
+reuses the gateway's prediction and event modules).
 
 The Makefile resolves the `streampredict` env's interpreter by absolute path, so another activated
 Conda env or a system Python earlier on `PATH` cannot shadow it.
@@ -60,7 +66,7 @@ Conda env or a system Python earlier on `PATH` cannot shadow it.
 
 - Ruff linting and formatting verification
 - strict mypy type checking
-- pytest
+- pytest (broker tests are skipped; run `make test-kafka` with the stack up)
 - repository structure validation
 - whitespace validation
 - dashboard ESLint, TypeScript, and production build
