@@ -10,6 +10,7 @@ const ACTIVE_STATES = new Set(["starting", "running", "cooling_down"]);
 
 const RISK_LABELS: Record<RiskLabel, string> = { low_risk: "Low risk", review: "Review", high_risk: "High risk" };
 const LABEL_ORDER: RiskLabel[] = ["low_risk", "review", "high_risk"];
+const OUTCOME_LABELS: Record<string, string> = { promoted: "Promoted", rolled_back: "Rolled back", rejected: "Rejected", manual_rollback: "Manual rollback" };
 
 type Tone = "info" | "success" | "warning";
 type EventItem = { id: number; time: string; tone: Tone; message: string };
@@ -96,9 +97,11 @@ export function StreamPredictDashboard() {
   const [demoError, setDemoError] = useState<string | null>(null);
   const [demoPending, setDemoPending] = useState(false);
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [releasePending, setReleasePending] = useState(false);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
   const [transport, setTransport] = useState<"sse" | "polling">("sse");
   const eventId = useRef(0);
-  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; replicas?: number; demoState?: string; sessionId?: string | null }>({ connected: null });
+  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; replicas?: number; release?: string; releaseStage?: string; demoState?: string; sessionId?: string | null }>({ connected: null });
 
   const addEvent = useCallback((message: string, tone: Tone = "info") => {
     eventId.current += 1;
@@ -113,6 +116,18 @@ export function StreamPredictDashboard() {
       const replicas = next.infrastructure?.consumer_replicas ?? undefined;
       if (prev.replicas !== undefined && replicas !== undefined && replicas !== prev.replicas) {
         addEvent(`Consumer replicas ${prev.replicas} → ${replicas}; partitions rebalanced`, replicas > prev.replicas ? "success" : "info");
+      }
+      const latest = next.deployment?.history[0];
+      const latestKey = latest ? `${latest.version}-${latest.started_at}` : undefined;
+      if (prev.connected && latest && latestKey !== prev.release) {
+        const label = `${versionLabel(latest.previous ?? undefined)} → ${versionLabel(latest.version)}`;
+        if (latest.outcome === "promoted") addEvent(`Release ${label} promoted; health gate passed`, "success");
+        else if (latest.outcome === "rolled_back") addEvent(`Release ${label} rolled back: ${latest.reasons.join("; ")}`, "warning");
+        else if (latest.outcome === "rejected") addEvent(`${versionLabel(latest.version)} rejected before deploy: ${latest.reasons.join("; ")}`, "warning");
+        else addEvent(`Manual rollback ${label}`, "warning");
+      }
+      if (prev.connected && next.deployment?.active && next.deployment.active.stage === "verifying" && prev.releaseStage !== "verifying") {
+        addEvent(`Traffic switched to ${versionLabel(next.deployment.active.version)}; verifying against its training profile`);
       }
       const kafkaState = next.kafka?.status;
       if (prev.kafka && kafkaState && prev.kafka !== kafkaState) {
@@ -131,7 +146,7 @@ export function StreamPredictDashboard() {
           addEvent(`Demo completed · ${demo.summary.total_requests} requests, peak ${demo.summary.peak_rps} RPS, ${demo.summary.errors} errors`, "success");
         if (demo.state === "failed") addEvent(`Demo ended early (${demo.stop_reason ?? "unknown"})`, "warning");
       }
-      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, replicas: replicas ?? prev.replicas, demoState: demo.state, sessionId: demo.session_id };
+      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, replicas: replicas ?? prev.replicas, release: latestKey, releaseStage: next.deployment?.active?.stage, demoState: demo.state, sessionId: demo.session_id };
       setOverview(next);
       setConnectionError(null);
     },
@@ -204,6 +219,32 @@ export function StreamPredictDashboard() {
     }
   };
 
+  const releaseModel = async (version: string) => {
+    setReleasePending(true);
+    setReleaseError(null);
+    try {
+      await api.releaseModel(version);
+      addEvent(`Release of ${versionLabel(version)} requested; running gates`);
+    } catch (error) {
+      setReleaseError(errorMessage(error));
+    } finally {
+      setReleasePending(false);
+    }
+  };
+
+  const rollbackModel = async () => {
+    setReleasePending(true);
+    setReleaseError(null);
+    try {
+      await api.rollbackModel();
+      addEvent("Manual rollback requested", "warning");
+    } catch (error) {
+      setReleaseError(errorMessage(error));
+    } finally {
+      setReleasePending(false);
+    }
+  };
+
   const stopDemo = async () => {
     setDemoPending(true);
     setDemoError(null);
@@ -245,6 +286,7 @@ export function StreamPredictDashboard() {
   const redisStatus: NodeStatus = !connected ? "pending" : overview.dependencies.redis === "ok" ? "healthy" : "degraded";
   const kafka = overview?.kafka ?? null;
   const infra = overview?.infrastructure ?? null;
+  const deployment = overview?.deployment ?? null;
   const model = overview?.model ?? null;
   const labelTotal = model ? LABEL_ORDER.reduce((sum, label) => sum + model.label_distribution[label], 0) : 0;
   const eventsDemo = active && overview?.demo.channel === "events";
@@ -576,7 +618,9 @@ export function StreamPredictDashboard() {
           ) : (
             <p className="empty-state">The prediction distribution appears once this gateway serves predictions.</p>
           )}
-          <small className="panel-note">Champion / Challenger and health-gated rollback arrive with MLflow (M6).</small>
+          <small className="panel-note">
+            {deployment?.status === "ok" ? `Champion ${versionLabel(deployment.champion ?? undefined)} · registry: MLflow` : "Deployment controller unavailable"}
+          </small>
         </article>
 
         <article className="panel detail-panel">
@@ -656,6 +700,64 @@ export function StreamPredictDashboard() {
             <p className="empty-state">{infra ? "Kafka is unreachable, so consumer membership is unknown." : "Consumer replicas are read from Kafka, which is disabled."}</p>
           )}
           <small className="panel-note">Pod CPU, memory, and HPA scaling events arrive with Kubernetes (M9).</small>
+        </article>
+
+        <article className="panel release-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="section-kicker">MODEL LIFECYCLE</span>
+              <h2>Model releases</h2>
+            </div>
+            <span className={deployment?.active ? "scaling-label" : "panel-badge"}>
+              {deployment?.active ? `Releasing ${versionLabel(deployment.active.version)} · ${deployment.active.stage}` : deployment?.status === "ok" ? "Idle" : "Unavailable"}
+            </span>
+          </div>
+          {deployment?.status === "ok" ? (
+            <div className="release-layout">
+              <div className="version-list">
+                {deployment.versions.map((v) => {
+                  const isChampion = v.version === deployment.champion;
+                  return (
+                    <div key={v.version} className={`version-card ${isChampion ? "champion" : ""}`}>
+                      <div>
+                        <strong>{versionLabel(v.version)}</strong>
+                        <span className={`status-chip ${v.status}`}>{isChampion ? "champion" : v.status.replace("_", " ")}</span>
+                      </div>
+                      <small>{v.description || v.profile}</small>
+                      <small className="mono-text">AUC {fmt(v.auc, "", 3)}</small>
+                      <button className="ghost-button" disabled={isChampion || !!deployment.active || releasePending} onClick={() => void releaseModel(v.version)}>
+                        {isChampion ? "Serving" : "Release"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="release-history">
+                {deployment.active ? <p className="release-active">{deployment.active.detail || "Validating the candidate…"}</p> : null}
+                {deployment.history.length ? (
+                  <ul>
+                    {deployment.history.slice(0, 4).map((r) => (
+                      <li key={`${r.version}-${r.started_at}`} className={r.outcome}>
+                        <span>{OUTCOME_LABELS[r.outcome] ?? r.outcome}</span>
+                        <strong>
+                          {versionLabel(r.previous ?? undefined)} → {versionLabel(r.version)}
+                        </strong>
+                        <small>{r.reasons.length ? r.reasons.join("; ") : r.metrics.psi !== undefined ? `PSI ${fmt(r.metrics.psi, "", 3)} · high-risk ${fmt(100 * (r.metrics.high_risk_rate ?? 0), "%")}` : ""}</small>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="empty-state">No releases yet. Release a candidate: it is gated on its contract and offline metrics, then verified on live traffic and rolled back automatically if its outputs drift from training.</p>
+                )}
+                <button className="ghost-button" disabled={!!deployment.active || releasePending || !deployment.history.some((r) => r.outcome === "promoted")} onClick={() => void rollbackModel()}>
+                  ⟲ Roll back to previous champion
+                </button>
+                {releaseError ? <p className="inline-error">{releaseError}</p> : null}
+              </div>
+            </div>
+          ) : (
+            <p className="empty-state">{overview?.deployment ? "The deployment controller is unreachable." : "No deployment controller is configured (CONTROLLER_URL)."}</p>
+          )}
         </article>
 
         <article className="panel event-panel">
