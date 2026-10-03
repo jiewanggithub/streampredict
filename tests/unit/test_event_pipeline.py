@@ -249,3 +249,29 @@ def test_kafka_monitor_derives_rates_from_offsets() -> None:
     asyncio.run(monitor.sample())  # the source is exhausted and times out
     assert monitor.overview().status == "unavailable"
     assert monitor.overview().lag is None
+
+
+def test_kafka_monitor_survives_unexpected_errors() -> None:
+    class Flaky(FakeOffsetSource):
+        failing = True
+
+        async def read(self) -> OffsetSnapshot:
+            if self.failing:
+                raise ValueError("unexpected protocol payload")
+            return OffsetSnapshot(end={0: 5}, committed={0: 5})
+
+    async def run() -> tuple[str, str]:
+        source = Flaky([])
+        monitor = KafkaMonitor(
+            source, ApiMetrics(), topic="t", consumer_group="g", interval_seconds=0.01
+        )
+        monitor.start()
+        await asyncio.sleep(0.05)
+        failed = monitor.overview().status
+        source.failing = False
+        await asyncio.sleep(0.05)
+        recovered = monitor.overview().status
+        await monitor.stop()
+        return failed, recovered
+
+    assert asyncio.run(run()) == ("unavailable", "ok")

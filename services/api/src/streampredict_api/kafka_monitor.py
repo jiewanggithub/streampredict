@@ -113,10 +113,10 @@ class KafkaOffsetSource:
             return None, ()
         members = []
         for member in group["members"]:
-            assignment = ConsumerProtocolMemberAssignment.decode(member["member_assignment"])
-            partitions = sorted(
-                tp.partition for tp in assignment.partitions() if tp.topic == self._topic
-            )
+            # Members have an empty assignment while the group is rebalancing.
+            raw = member["member_assignment"]
+            assignment = ConsumerProtocolMemberAssignment.decode(raw).partitions() if raw else []
+            partitions = sorted(tp.partition for tp in assignment if tp.topic == self._topic)
             members.append(
                 GroupMember(
                     # Member IDs are client_id + UUID; the last UUID group tells them apart.
@@ -171,11 +171,15 @@ class KafkaMonitor:
         self._latest: OffsetSnapshot | None = None
         self._available = False
         self._task: asyncio.Task[None] | None = None
+        self._stopping = False
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop(), name="kafka-monitor")
 
     async def stop(self) -> None:
+        # Python 3.11's wait_for can swallow a cancellation that races with a finished read, so
+        # the loop also checks this flag instead of relying on cancellation alone.
+        self._stopping = True
         if self._task is not None:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -187,8 +191,15 @@ class KafkaMonitor:
         return self._available
 
     async def _loop(self) -> None:
-        while True:
-            await self.sample()
+        while not self._stopping:
+            try:
+                await self.sample()
+            except Exception:
+                # Never let one bad sample stop monitoring for the life of the process.
+                logger.exception("Kafka monitor sample failed")
+                self._available = False
+                with contextlib.suppress(Exception):
+                    await self._source.close()
             await asyncio.sleep(self._interval)
 
     async def sample(self) -> None:
