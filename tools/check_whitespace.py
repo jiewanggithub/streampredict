@@ -3,7 +3,16 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-IGNORED_PARTS = {".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv"}
+IGNORED_PARTS = {
+    ".cache",
+    ".git",
+    ".mypy_cache",
+    ".next",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "node_modules",
+}
 TEXT_SUFFIXES = {
     ".md",
     ".py",

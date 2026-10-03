@@ -17,14 +17,14 @@ repos:
 
       - id: project-validation
         name: project foundation validation
-        entry: conda run -n streampredict python tools/validate_project.py
+        entry: conda run -n streampredict sh -c '"$CONDA_PREFIX/bin/python" "$0"' tools/validate_project.py
         language: system
         pass_filenames: false
         always_run: true
 
       - id: whitespace
         name: trailing whitespace
-        entry: conda run -n streampredict python tools/check_whitespace.py
+        entry: conda run -n streampredict sh -c '"$CONDA_PREFIX/bin/python" "$0"' tools/check_whitespace.py
         language: system
         pass_filenames: false
         always_run: true

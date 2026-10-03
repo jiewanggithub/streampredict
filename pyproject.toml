@@ -13,6 +13,9 @@ extend-exclude = [".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["streampredict_api", "tests", "tools"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
@@ -24,8 +27,10 @@ strict = true
 pretty = true
 show_error_codes = true
 exclude = ["^build/", "^dist/", "^node_modules/"]
+mypy_path = ["services/api/src"]
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
-pythonpath = ["."]
+pythonpath = [".", "services/api/src"]
 testpaths = ["tests"]

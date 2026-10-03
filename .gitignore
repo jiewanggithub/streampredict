@@ -39,3 +39,6 @@ htmlcov/
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# TypeScript incremental build info
+*.tsbuildinfo

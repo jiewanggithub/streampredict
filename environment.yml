@@ -11,4 +11,5 @@ dependencies:
       - pre-commit>=4.3,<5
       - pytest>=8.4,<9
       - ruff>=0.14,<1
+      - -r services/api/requirements-dev.txt
 
