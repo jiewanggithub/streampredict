@@ -27,7 +27,7 @@ StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 D
 | M4 | Redis Feature & Cache Layer | `正在实现` | 提供在线特征读取和预测结果缓存 |
 | M5 | ONNX Runtime Model Serving | `已实现` | 托管版本化模型并执行真实推理 |
 | M6 | MLflow + S3 Model Lifecycle | `已实现` | 管理模型版本、制品、Champion/Challenger 与回滚 |
-| M7 | Prometheus Observability | `未开始` | 统一采集 API、Kafka、Redis、模型和集群指标 |
+| M7 | Prometheus Observability | `已实现` | 统一采集 API、Kafka、Redis、模型和集群指标 |
 | M8 | Demo Orchestrator & Load Generator | `已实现` | 安全地触发流量尖峰并展示系统反馈闭环 |
 | M9 | Kubernetes Deployment & HPA | `已实现` | 部署各服务并基于 CPU、RPS 和 Kafka lag 扩缩容 |
 | M10 | Testing, CI/CD & Security | `未开始` | 建立自动化测试、质量门禁、镜像发布与安全基线 |
@@ -215,28 +215,30 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 
 验证记录：本地 Compose 中 v1 → v2 通过门禁晋升（PSI 0.003）；v2 → v3 时 v3 离线 AUC 与 v2 相同（0.778），但它在训练时把金额当作“分”，上线后高风险率从预期的 6.2% 降到 0%（PSI 1.25），约 10 秒内自动回滚到 v2，Dashboard 与 MLflow 均可见全过程。运维说明见 [`docs/runbooks/model-releases.md`](docs/runbooks/model-releases.md)。
 
-### M7 - Prometheus Observability `未开始`
+### M7 - Prometheus Observability `已实现`
 
 负责统一采集并呈现系统行为。
 
 核心指标：
 
-- [ ] FastAPI：RPS、status code、p50/p95/p99 latency、in-flight requests。
-- [ ] Kafka：producer rate、consumer throughput、consumer lag、retry count。
-- [ ] Redis：hit rate、miss rate、lookup latency、connection usage。
-- [ ] Model Serving：inference latency、batch size、queue time、error rate。
-- [ ] Kubernetes：Pod count、CPU、memory、restart count、HPA events。
-- [ ] Model：current version、prediction distribution、rollback count。
-- [ ] Demo：session state、target RPS、elapsed time、generated events。
+- [x] FastAPI：RPS、status code、p50/p95/p99 latency、in-flight requests。
+- [x] Kafka：producer rate、consumer throughput、consumer lag、retry count。
+- [x] Redis：hit rate、miss rate、lookup latency、connection usage。
+- [x] Model Serving：inference latency、batch size、queue time、error rate。
+- [x] Kubernetes：Pod count、CPU、memory、restart count、HPA events。
+- [x] Model：current version、prediction distribution、rollback count。
+- [x] Demo：session state、target RPS、elapsed time、generated events。
 
 需要实现：
 
-- [ ] Prometheus scrape 配置和 service discovery。
-- [ ] 指标命名规范与 label 基数限制。
-- [ ] 基础告警：高错误率、高延迟、Kafka lag、模型健康失败。
-- [ ] 可选 Grafana 工程监控面板。
+- [x] Prometheus scrape 配置和 service discovery。
+- [x] 指标命名规范与 label 基数限制。
+- [x] 基础告警：高错误率、高延迟、Kafka lag、模型健康失败。
+- [ ] 可选 Grafana 工程监控面板（未做：Dashboard 与 Prometheus UI 已覆盖演示需要）。
 
 验收条件：一次 Demo 的主要变化都能从指标中解释，并能在前端或 Grafana 中复现。
+
+验证记录：Prometheus 自动发现并采集每个副本（K8s 中 12 个 target 全部健康），记录规则提供全集群 p50/p95/p99，Dashboard 显示的延迟改为全集群口径；带流量发布缺陷模型 v3 后 `ModelReleaseRolledBack` 告警触发并显示在 Dashboard 横幅；网关按 Prometheus RPS（每 Pod 40）从 2 扩到 3。告警规则由 `make prometheus-test`（promtool 单元测试）验证。指标目录与约定见 [`docs/observability.md`](docs/observability.md)。
 
 ### M8 - Demo Orchestrator & Load Generator `已实现`
 
@@ -265,7 +267,7 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 - [x] FastAPI、Consumer、Model Serving 等组件的 Deployment 和 Service。
 - [x] ConfigMap、Secret、resource requests / limits。
 - [x] liveness、readiness 和 startup probes。
-- [x] FastAPI 基于 CPU / RPS 的 HPA（当前按 CPU；RPS 指标需 Prometheus Adapter，随 M7 评估）。
+- [x] FastAPI 基于 CPU / RPS 的 HPA（KEDA：CPU 70% 或每 Pod 40 RPS，RPS 来自 Prometheus）。
 - [x] Consumer 基于 Kafka lag 的扩缩容（KEDA，2–8 副本，每 15 秒最多翻倍，缩容先稳定 60 秒）。
 - [x] PodDisruptionBudget 和滚动更新策略。
 - [x] 本地集群方案，例如 `kind` 或 `minikube`。
@@ -378,11 +380,11 @@ StreamPredict/
 
 已在本地完成：Kafka 事件管道（M3）、ONNX Runtime 推理服务与示例模型（M5），事件携带 `event_id` / `request_id` 贯穿到结果 topic。
 
-### Phase 3 - Model Lifecycle & Observability `正在实现`
+### Phase 3 - Model Lifecycle & Observability `已实现`
 
 接入 MLflow、S3-compatible artifact storage、Prometheus 和完整指标面板。
 
-已完成：MLflow + SeaweedFS 模型生命周期与门禁回滚（M6）；待完成：Prometheus 采集与告警（M7）。
+已完成：MLflow + SeaweedFS 模型生命周期与门禁回滚（M6）、Prometheus 采集、告警与全集群指标（M7）。
 
 ### Phase 4 - Kubernetes & Autoscaling Demo `已实现`
 
@@ -412,7 +414,7 @@ conda env update -f environment.yml --prune
 启动本地全栈（Redis + Kafka + MLflow + 模型推理服务 + 发布控制器 + FastAPI + Consumer + Dashboard）：
 
 ```bash
-make up            # Docker Compose：Dashboard http://localhost:3000，API http://localhost:8000/docs，MLflow http://localhost:5001
+make up            # Docker Compose：Dashboard http://localhost:3000，API http://localhost:8000/docs，MLflow http://localhost:5001，Prometheus http://localhost:9090
 make test-kafka    # 在运行中的 Kafka 上执行事件管道测试
 ```
 

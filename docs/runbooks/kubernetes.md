@@ -18,6 +18,7 @@ Dashboard <http://localhost:3000>, API <http://localhost:8000/docs>, MLflow <htt
 | --- | --- |
 | `infra/kubernetes/base` | Namespace, ConfigMap/Secret, every workload, Services, HPAs, PDBs, RBAC |
 | `infra/kubernetes/autoscaling` | KEDA ScaledObject, applied after Kafka and its topics are ready |
+| `infra/prometheus` | Prometheus (pod discovery, cAdvisor, kube-state-metrics), shared rules; applied before the autoscalers |
 | `infra/kubernetes/scripts` | `up.sh` (cluster + add-ons + images), `deploy.sh` (apply, roll out, undo on failure) |
 
 ## Autoscaling
@@ -25,7 +26,7 @@ Dashboard <http://localhost:3000>, API <http://localhost:8000/docs>, MLflow <htt
 | Workload | Scaler | Range | Signal |
 | --- | --- | --- | --- |
 | `consumer` | KEDA ScaledObject → HPA `keda-hpa-consumer` | 2–8 | Consumer-group lag, target 50 per pod; may double every 15 s, scales down after 60 s stable |
-| `api` | HPA | 2–4 | CPU 70 % of requests |
+| `api` | KEDA ScaledObject → HPA `keda-hpa-api` | 2–4 | CPU 70 % of requests, or > 40 prediction RPS per pod (Prometheus) |
 | `model-serving` | HPA | 2–4 | CPU 70 % of requests |
 
 Consumers run with `CONSUMER_CONCURRENCY=1` and `CONSUMER_SIMULATED_WORK_MS=40` (~23 events/s per
