@@ -13,5 +13,6 @@ dependencies:
       - ruff>=0.14,<1
       - -r services/api/requirements-dev.txt
       - -r services/model-serving/requirements.txt
+      - -r services/model-controller/requirements.txt
       - -r ml/requirements.txt
 

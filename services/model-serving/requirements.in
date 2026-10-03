@@ -6,3 +6,5 @@ onnxruntime==1.30.0
 prometheus-client==0.26.0
 pydantic-settings==2.15.0
 uvicorn==0.54.0
+# Shared dev env: mlflow-skinny (controller) requires protobuf<7.
+protobuf<7

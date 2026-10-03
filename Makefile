@@ -10,7 +10,7 @@ export PRE_COMMIT_HOME := $(CURDIR)/.cache/pre-commit
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup format lint format-check typecheck test test-kafka validate api-dev consumer-dev serving-dev serving-lock train api-lock dashboard-install dashboard-dev dashboard-check up down logs check hooks clean
+.PHONY: help setup format lint format-check typecheck test test-kafka validate api-dev consumer-dev serving-dev serving-lock controller-lock train api-lock dashboard-install dashboard-dev dashboard-check up down logs check hooks clean
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "StreamPredict development commands\n\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -29,7 +29,7 @@ format-check: ## Verify Python formatting without changing files
 	$(CONDA_RUN) ruff format --check .
 
 typecheck: ## Run strict Python type checking
-	$(CONDA_RUN) mypy tools tests ml services/api/src services/consumer/src services/model-serving/src
+	$(CONDA_RUN) mypy tools tests ml services/api/src services/consumer/src services/model-controller/src services/model-serving/src
 
 test: ## Run the test suite (Kafka broker tests are skipped)
 	$(CONDA_RUN) pytest
@@ -59,6 +59,11 @@ serving-lock: ## Regenerate services/model-serving/requirements.txt from require
 	rm -rf .cache/serving-lock && $(PYTHON) -m venv .cache/serving-lock
 	.cache/serving-lock/bin/pip install -q -r services/model-serving/requirements.in
 	{ echo "# Locked runtime dependencies generated from requirements.in by 'make serving-lock'."; .cache/serving-lock/bin/pip freeze; } > services/model-serving/requirements.txt
+
+controller-lock: ## Regenerate services/model-controller/requirements.txt from requirements.in
+	rm -rf .cache/controller-lock && $(PYTHON) -m venv .cache/controller-lock
+	.cache/controller-lock/bin/pip install -q -r services/model-controller/requirements.in
+	{ echo "# Locked runtime dependencies generated from requirements.in by 'make controller-lock'."; .cache/controller-lock/bin/pip freeze; } > services/model-controller/requirements.txt
 
 train: ## Retrain the demo model versions into the serving model repository
 	$(PYTHON) -m ml.training.train --version 1 --profile baseline

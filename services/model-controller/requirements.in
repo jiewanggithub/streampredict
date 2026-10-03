@@ -1,0 +1,9 @@
+# Direct runtime dependencies for the deployment controller. Regenerate requirements.txt after changes:
+#   make controller-lock
+fastapi==0.142.2
+httpx==0.28.1
+mlflow-skinny==3.16.1
+numpy==2.4.6
+prometheus-client==0.26.0
+pydantic-settings==2.15.0
+uvicorn==0.54.0

@@ -14,7 +14,15 @@ extend-exclude = [".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv"
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["ml", "streampredict_api", "streampredict_consumer", "streampredict_serving", "tests", "tools"]
+known-first-party = [
+    "ml",
+    "streampredict_api",
+    "streampredict_consumer",
+    "streampredict_controller",
+    "streampredict_serving",
+    "tests",
+    "tools",
+]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -27,7 +35,12 @@ strict = true
 pretty = true
 show_error_codes = true
 exclude = ["^build/", "^dist/", "^node_modules/"]
-mypy_path = ["services/api/src", "services/consumer/src", "services/model-serving/src"]
+mypy_path = [
+    "services/api/src",
+    "services/consumer/src",
+    "services/model-controller/src",
+    "services/model-serving/src",
+]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
@@ -37,7 +50,13 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
-pythonpath = [".", "services/api/src", "services/consumer/src", "services/model-serving/src"]
+pythonpath = [
+    ".",
+    "services/api/src",
+    "services/consumer/src",
+    "services/model-controller/src",
+    "services/model-serving/src",
+]
 markers = [
     "kafka: needs a running broker; set STREAMPREDICT_TEST_KAFKA=localhost:9092 (make test-kafka)",
 ]
