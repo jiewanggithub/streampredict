@@ -21,15 +21,15 @@ StreamPredict 不只是一个预测 API。它的目标是实现从用户触发 D
 | ID | Module | 当前状态 | 目标 |
 | --- | --- | --- | --- |
 | M0 | 项目基础与开发环境 | `已实现` | 建立可复现的本地开发环境、目录与工程规范 |
-| M1 | React / Next.js Demo Dashboard | `正在实现` | 给用户一个可操作、可观察系统变化的 Demo 页面 |
+| M1 | React / Next.js Demo Dashboard | `已实现` | 给用户一个可操作、可观察系统变化的 Demo 页面 |
 | M2 | FastAPI API Gateway | `已实现` | 提供预测、Demo 控制、健康检查和指标接口 |
 | M3 | Kafka Event Pipeline | `已实现` | 实现事件生产、缓冲、消费与消费积压观测 |
 | M4 | Redis Feature & Cache Layer | `正在实现` | 提供在线特征读取和预测结果缓存 |
-| M5 | ONNX Runtime Model Serving | `正在实现` | 托管版本化模型并执行真实推理 |
+| M5 | ONNX Runtime Model Serving | `已实现` | 托管版本化模型并执行真实推理 |
 | M6 | MLflow + S3 Model Lifecycle | `已实现` | 管理模型版本、制品、Champion/Challenger 与回滚 |
 | M7 | Prometheus Observability | `未开始` | 统一采集 API、Kafka、Redis、模型和集群指标 |
-| M8 | Demo Orchestrator & Load Generator | `正在实现` | 安全地触发流量尖峰并展示系统反馈闭环 |
-| M9 | Kubernetes Deployment & HPA | `未开始` | 部署各服务并基于 CPU、RPS 和 Kafka lag 扩缩容 |
+| M8 | Demo Orchestrator & Load Generator | `已实现` | 安全地触发流量尖峰并展示系统反馈闭环 |
+| M9 | Kubernetes Deployment & HPA | `已实现` | 部署各服务并基于 CPU、RPS 和 Kafka lag 扩缩容 |
 | M10 | Testing, CI/CD & Security | `未开始` | 建立自动化测试、质量门禁、镜像发布与安全基线 |
 
 ## Demo 最终体验
@@ -95,7 +95,7 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 
 验收条件：新开发者能够根据 README 创建开发环境、安装 Git hooks，并通过全部基础质量检查。最小应用服务将在 Phase 1 中实现。
 
-### M1 - React / Next.js Demo Dashboard `正在实现`
+### M1 - React / Next.js Demo Dashboard `已实现`
 
 面向最终用户的交互式演示页面。
 
@@ -106,9 +106,9 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 - [x] Demo 控制：提供 **Run Demo**、**Start Traffic Spike** 和 **Stop Demo**。
 - [x] 实时指标：展示 RPS、p50/p95/p99 latency、success rate。
 - [x] Kafka 面板：展示 incoming events、consumer throughput 和 consumer lag。
-- [ ] Redis 面板：展示 cache hit rate、miss rate 和 lookup latency。
+- [x] Redis 面板：展示 cache hit rate、miss rate 和 lookup latency。
 - [x] Model 面板：展示 Champion / Challenger、版本、错误率和回滚事件（另含预测分布、发布控制与发布历史）。
-- [ ] Infrastructure 面板：展示 Pod 数量、CPU、内存和 HPA scaling events。（已展示 Consumer 副本数、分区分配与扩缩容事件；Pod CPU / 内存与 HPA 依赖 M9）
+- [x] Infrastructure 面板：展示 Pod 数量、CPU、内存和 HPA scaling events（Kubernetes 中读取 Deployment、HPA、metrics-server 与 SuccessfulRescale 事件；Compose 中显示 Consumer 副本与分区分配）。
 - [x] 使用 SSE 或 WebSocket 接收实时更新；轮询可作为第一版实现。
 - [x] 提供加载、空数据、断线、错误和 Demo 完成状态。
 
@@ -178,7 +178,7 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 
 验收条件：重复请求能命中缓存；Redis 故障不会造成 API 无限等待或不可解释的错误。
 
-### M5 - ONNX Runtime Model Serving `正在实现`
+### M5 - ONNX Runtime Model Serving `已实现`
 
 负责加载模型、执行推理并暴露稳定的内部推理接口。平台与模型解耦：任何能导出为 ONNX 的模型（PyTorch、TensorFlow、scikit-learn 等）都可以按同一模型仓库规范接入。
 
@@ -195,7 +195,7 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 
 验收条件：同一模型制品可以在本地和 Kubernetes 中稳定运行，并返回可验证的预测结果。
 
-验证记录：本地 Compose 中同步预测 p50 约 2 ms、p95 约 15 ms（含 Redis 缓存命中）；100 RPS 的 Kafka spike 共 1,084 个事件全部经推理服务处理，0 错误；并发请求被动态 batching 合并（157 次推理合并为 104 个批次）。Kubernetes 中的运行将在 M9 验证，届时标记为 `已实现`。
+验证记录：本地 Compose 中同步预测 p50 约 2 ms、p95 约 15 ms（含 Redis 缓存命中）；100 RPS 的 Kafka spike 共 1,084 个事件全部经推理服务处理，0 错误；并发请求被动态 batching 合并（157 次推理合并为 104 个批次）。Kubernetes 中以 2 个副本运行并通过 HPA（CPU）扩缩，发布时控制器逐个通知副本加载新版本（M9 验证）。
 
 ### M6 - MLflow + S3 Model Lifecycle `已实现`
 
@@ -238,7 +238,7 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 
 验收条件：一次 Demo 的主要变化都能从指标中解释，并能在前端或 Grafana 中复现。
 
-### M8 - Demo Orchestrator & Load Generator `正在实现`
+### M8 - Demo Orchestrator & Load Generator `已实现`
 
 负责把复杂系统行为封装成用户可触发的安全演示。
 
@@ -250,26 +250,30 @@ Prometheus <- FastAPI / Kafka / Redis / Model Serving / Kubernetes
 - [x] 支持手动停止、超时停止和异常清理。
 - [x] 使用合成数据，不上传或保留用户敏感数据。
 - [x] 将 Demo 进度和关键事件推送到前端。
-- [ ] Demo 完成后生成摘要：峰值 RPS、最大 lag、扩容次数、恢复时间。
+- [x] Demo 完成后生成摘要：峰值 RPS、最大 lag、扩容次数、恢复时间（从 lag 峰值回落到 ≤ 10 的秒数）。
 
 验收条件：连续运行多次 Demo 不会残留任务、无限发消息或持续占用资源。
 
-### M9 - Kubernetes Deployment & HPA `未开始`
+实现说明：单副本部署（Compose）中编排器运行在网关进程内；Kubernetes 中作为独立的单副本服务运行（与网关同镜像，`streampredict_api.demo_service`），网关各副本把 Demo 接口代理给它，保证集群内只有一个 Session 状态；合成流量经网关 Service 发出，与真实用户流量走相同路径。
+
+### M9 - Kubernetes Deployment & HPA `已实现`
 
 负责生产式部署、服务发现、弹性伸缩和安全回滚。
 
 需要实现：
 
-- [ ] FastAPI、Consumer、Model Serving 等组件的 Deployment 和 Service。
-- [ ] ConfigMap、Secret、resource requests / limits。
-- [ ] liveness、readiness 和 startup probes。
-- [ ] FastAPI 基于 CPU / RPS 的 HPA。
-- [ ] Consumer 基于 Kafka lag 的扩缩容，可评估 KEDA。
-- [ ] PodDisruptionBudget 和滚动更新策略。
-- [ ] 本地集群方案，例如 `kind` 或 `minikube`。
-- [ ] 模型发布失败自动回滚。
+- [x] FastAPI、Consumer、Model Serving 等组件的 Deployment 和 Service。
+- [x] ConfigMap、Secret、resource requests / limits。
+- [x] liveness、readiness 和 startup probes。
+- [x] FastAPI 基于 CPU / RPS 的 HPA（当前按 CPU；RPS 指标需 Prometheus Adapter，随 M7 评估）。
+- [x] Consumer 基于 Kafka lag 的扩缩容（KEDA，2–8 副本，每 15 秒最多翻倍，缩容先稳定 60 秒）。
+- [x] PodDisruptionBudget 和滚动更新策略。
+- [x] 本地集群方案，例如 `kind` 或 `minikube`。
+- [x] 模型发布失败自动回滚：发布控制器的部署后门禁失败即切回旧版本；Deployment 滚动发布超时由 `deploy.sh` 自动 `rollout undo`。
 
 验收条件：流量尖峰能触发扩容，负载下降后能安全缩容，发布失败不会长时间影响预测服务。
+
+验证记录：本地 kind 集群（Docker 内存 7.7 GB，节点占用约 3.7 GB）中，100 RPS 的 Kafka spike 使 lag 升至约 900，KEDA 将 Consumer 从 2 扩到 4 再到 8，消费吞吐从约 50/s 升到约 180/s，lag 回落到 0；负载结束后按策略缩回 2。带流量发布有缺陷的 v3 时，部署后门禁约 10 秒内回滚到 v2，3,240 个请求 0 错误。部署与排障见 [`docs/runbooks/kubernetes.md`](docs/runbooks/kubernetes.md)。
 
 ### M10 - Testing, CI/CD & Security `未开始`
 
@@ -333,9 +337,8 @@ StreamPredict/
 ├── apps/
 │   └── dashboard/              # Next.js 用户 Demo
 ├── services/
-│   ├── api/                    # FastAPI Gateway
+│   ├── api/                    # FastAPI Gateway（含 Demo 编排器 demo_service）
 │   ├── consumer/               # Kafka Consumer workers
-│   ├── demo-orchestrator/      # 受控流量生成与 Demo 状态机
 │   ├── model-controller/       # 发布控制器：门禁、晋升与自动回滚
 │   └── model-serving/          # ONNX Runtime 推理服务与模型仓库
 ├── ml/
@@ -381,7 +384,7 @@ StreamPredict/
 
 已完成：MLflow + SeaweedFS 模型生命周期与门禁回滚（M6）；待完成：Prometheus 采集与告警（M7）。
 
-### Phase 4 - Kubernetes & Autoscaling Demo `未开始`
+### Phase 4 - Kubernetes & Autoscaling Demo `已实现`
 
 部署到本地或云端 Kubernetes，完成基于 Kafka lag 的扩缩容、健康门禁与回滚演示。
 
@@ -411,6 +414,14 @@ conda env update -f environment.yml --prune
 ```bash
 make up            # Docker Compose：Dashboard http://localhost:3000，API http://localhost:8000/docs，MLflow http://localhost:5001
 make test-kafka    # 在运行中的 Kafka 上执行事件管道测试
+```
+
+在本地 Kubernetes（kind）中运行，含 KEDA 与 HPA 自动扩缩容（先 `make down` 释放端口）：
+
+```bash
+make k8s-up        # 创建集群、安装 metrics-server 与 KEDA、构建并部署全部服务
+make k8s-status    # 查看 Pod、HPA、ScaledObject 与扩缩容事件
+make k8s-down      # 删除集群
 make down
 
 # 或不使用 Docker 分别启动（API 在 Redis 不可用时降级为 cache bypass）

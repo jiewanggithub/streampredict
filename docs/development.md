@@ -56,6 +56,7 @@ host-side `make api-dev` defaults to the in-process mock unless `INFERENCE_BACKE
 
 Operating the event pipeline (lag, dead letters, replay): [`runbooks/kafka-event-pipeline.md`](runbooks/kafka-event-pipeline.md).
 Releasing and rolling back models: [`runbooks/model-releases.md`](runbooks/model-releases.md).
+Running on local Kubernetes with autoscaling (`make k8s-up`): [`runbooks/kubernetes.md`](runbooks/kubernetes.md).
 
 ## Models
 
