@@ -8,7 +8,7 @@ from prometheus_client import start_http_server
 from redis.asyncio import Redis
 
 from streampredict_api.cache import PredictionCache, build_redis
-from streampredict_api.inference import MockInferenceClient
+from streampredict_api.inference import InferenceClient, build_inference
 from streampredict_api.logs import configure_logging
 from streampredict_api.prediction import PredictionService
 
@@ -22,7 +22,10 @@ logger = logging.getLogger("streampredict.consumer")
 
 
 def build_worker(
-    settings: ConsumerSettings, redis_client: Redis, metrics: ConsumerMetrics
+    settings: ConsumerSettings,
+    redis_client: Redis,
+    metrics: ConsumerMetrics,
+    inference: InferenceClient | None = None,
 ) -> KafkaWorker:
     cache = PredictionCache(
         redis_client,
@@ -31,11 +34,7 @@ def build_worker(
         circuit_open_seconds=settings.redis_circuit_open_seconds,
         metrics=metrics,
     )
-    inference = MockInferenceClient(
-        settings.model_name,
-        settings.model_version,
-        latency_seconds=settings.mock_inference_latency_ms / 1000,
-    )
+    inference = inference or build_inference(settings)
     predictions = PredictionService(
         cache,
         inference,
@@ -67,7 +66,9 @@ async def run(settings: ConsumerSettings) -> None:
     metrics = ConsumerMetrics()
     start_http_server(settings.consumer_metrics_port, registry=metrics.registry)
     redis_client = build_redis(settings.redis_url, settings.redis_timeout_seconds)
-    worker = build_worker(settings, redis_client, metrics)
+    inference = build_inference(settings)
+    await inference.start()
+    worker = build_worker(settings, redis_client, metrics, inference)
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -76,6 +77,7 @@ async def run(settings: ConsumerSettings) -> None:
     try:
         await worker.run()
     finally:
+        await inference.close()
         await redis_client.aclose()
 
 

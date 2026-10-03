@@ -28,7 +28,11 @@ class Settings(BaseSettings):
     redis_timeout_seconds: float = Field(default=0.05, gt=0, le=5)
     redis_circuit_open_seconds: float = Field(default=5.0, ge=0, le=300)
 
+    # `serving` calls the model-serving service; `mock` scores in-process (tests, no-model dev).
+    inference_backend: Literal["mock", "serving"] = "mock"
+    serving_url: str = "http://localhost:8001"
     model_name: str = "streampredict-demo"
+    # With the serving backend, `latest` pins the highest version available at startup.
     model_version: str = "development"
     inference_timeout_seconds: float = Field(default=1.0, gt=0, le=30)
     mock_inference_latency_ms: float = Field(default=15.0, ge=0, le=5_000)

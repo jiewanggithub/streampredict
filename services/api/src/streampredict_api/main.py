@@ -28,7 +28,7 @@ from .events import (
     KafkaEventPublisher,
     new_event,
 )
-from .inference import InferenceClient, MockInferenceClient
+from .inference import InferenceClient, build_inference
 from .kafka_monitor import KafkaMonitor, KafkaOffsetSource
 from .logs import configure_logging, request_id_var
 from .metrics import ApiMetrics, RollingWindow
@@ -77,11 +77,7 @@ def _default_redis(settings: Settings) -> Redis:
 
 
 def _default_inference(settings: Settings) -> InferenceClient:
-    return MockInferenceClient(
-        settings.model_name,
-        settings.model_version,
-        latency_seconds=settings.mock_inference_latency_ms / 1000,
-    )
+    return build_inference(settings)
 
 
 def _default_kafka(
@@ -155,6 +151,7 @@ def create_app(
         window = RollingWindow()
         redis_client = redis_factory(settings)
         inference = inference_factory(settings)
+        await inference.start()
         cache = PredictionCache(
             redis_client,
             ttl_seconds=settings.redis_cache_ttl_seconds,
@@ -198,6 +195,7 @@ def create_app(
             if kafka_monitor is not None:
                 await kafka_monitor.stop()
             await publisher.close()
+            await inference.close()
             await redis_client.aclose()
             logger.info("API gateway stopped")
 
