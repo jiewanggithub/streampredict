@@ -1,0 +1,75 @@
+# promtool unit tests for the alerting rules: make prometheus-test
+rule_files: [streampredict.rules.yml]
+evaluation_interval: 15s
+
+tests:
+  - name: consumer lag must persist for 2 minutes, and replicas report the same lag
+    interval: 15s
+    input_series:
+      - series: 'streampredict_kafka_consumer_lag{instance="api-a"}'
+        values: "100 1500x12"
+      - series: 'streampredict_kafka_consumer_lag{instance="api-b"}'
+        values: "100 1500x12"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: KafkaConsumerLagHigh
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "Consumer lag 1500 events for 2 minutes"
+              description: "Consumers are not keeping up; check KEDA scaling and consumer errors."
+
+  - name: dead letters fire immediately, and stop once they stop growing
+    interval: 1m
+    input_series:
+      - series: 'streampredict_consumer_dead_letters_total{reason="invalid_event"}'
+        values: "0 0 3 3 3 3 3 3 3 3"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: DeadLettersIncreasing
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: DeadLettersIncreasing
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "3 events dead-lettered in 5 minutes"
+              description: "See docs/runbooks/kafka-event-pipeline.md for inspection and replay."
+      - eval_time: 9m
+        alertname: DeadLettersIncreasing
+        exp_alerts: []
+
+  - name: API error rate above 5% for 2 minutes
+    interval: 15s
+    input_series:
+      - series: 'streampredict_http_requests_total{route="/api/v1/predict",status="200"}'
+        values: "0+90x20"
+      - series: 'streampredict_http_requests_total{route="/api/v1/predict",status="503"}'
+        values: "0+10x20"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ApiHighErrorRate
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "API 5xx rate 10% (> 5%)"
+              description: "Check /ready and the inference, Redis, and Kafka dependencies."
+
+  - name: no model loaded on any serving replica
+    interval: 15s
+    input_series:
+      - series: 'streampredict_serving_model_ready{instance="a",version="2"}'
+        values: "1 1 0x8"
+      - series: 'streampredict_serving_model_ready{instance="b",version="2"}'
+        values: "1 1 0x8"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: ServingNoModelLoaded
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "No model-serving replica has a model version loaded"
+              description: "Check model-controller reconcile logs and the MLflow champion alias."

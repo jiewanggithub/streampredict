@@ -1,0 +1,62 @@
+# Kubernetes scrape configuration.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs: [{ targets: ["localhost:9090"] }]
+
+  # Every StreamPredict pod annotated prometheus.io/scrape=true; job = streampredict-<component>.
+  - job_name: streampredict-pods
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces: { names: [streampredict] }
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__meta_kubernetes_pod_phase]
+        action: drop
+        regex: (Pending|Succeeded|Failed)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        regex: (.+)
+        target_label: __metrics_path__
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        target_label: job
+        replacement: streampredict-$1
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+  # Pod CPU and memory from the kubelet's cAdvisor, through the API server proxy.
+  - job_name: kubernetes-cadvisor
+    scheme: https
+    authorization: { credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token }
+    tls_config: { ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt }
+    kubernetes_sd_configs: [{ role: node }]
+    relabel_configs:
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+    metric_relabel_configs:
+      # Keep two series families for this namespace only; cAdvisor is otherwise very high cardinality.
+      - source_labels: [__name__, namespace]
+        action: keep
+        regex: (container_cpu_usage_seconds_total|container_memory_working_set_bytes);streampredict
+      - regex: (id|image|name)
+        action: labeldrop
+
+  # Pod counts, restarts, rollouts, and HPA state.
+  - job_name: kube-state-metrics
+    static_configs: [{ targets: ["kube-state-metrics:8080"] }]

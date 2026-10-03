@@ -1,0 +1,17 @@
+# Observability stack for Kubernetes: Prometheus (+ the shared rules) and kube-state-metrics.
+# Docker Compose mounts prometheus-compose.yml and rules/ directly.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: streampredict
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: streampredict
+    includeSelectors: false
+resources:
+  - kubernetes/prometheus.yaml
+  - kubernetes/kube-state-metrics.yaml
+configMapGenerator:
+  - name: prometheus-config
+    files: [kubernetes/prometheus.yml]
+  - name: prometheus-rules
+    files: [rules/streampredict.rules.yml]

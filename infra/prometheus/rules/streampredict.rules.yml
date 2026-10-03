@@ -1,0 +1,84 @@
+# Recording rules feed the dashboard (cluster-wide, across all replicas); alerting rules encode the
+# README's non-functional targets. Shared by Docker Compose and Kubernetes.
+groups:
+  - name: streampredict-recording
+    interval: 5s
+    rules:
+      - record: streampredict:prediction_rps:rate1m
+        expr: sum(rate(streampredict_predictions_total[1m]))
+      - record: streampredict:prediction_success_ratio:rate1m
+        expr: |
+          sum(rate(streampredict_predictions_total{outcome="success"}[1m]))
+            / sum(rate(streampredict_predictions_total[1m]))
+      - record: streampredict:prediction_latency_seconds:p50_1m
+        expr: histogram_quantile(0.50, sum by (le) (rate(streampredict_prediction_duration_seconds_bucket[1m])))
+      - record: streampredict:prediction_latency_seconds:p95_1m
+        expr: histogram_quantile(0.95, sum by (le) (rate(streampredict_prediction_duration_seconds_bucket[1m])))
+      - record: streampredict:prediction_latency_seconds:p99_1m
+        expr: histogram_quantile(0.99, sum by (le) (rate(streampredict_prediction_duration_seconds_bucket[1m])))
+      - record: streampredict:http_requests:rate1m
+        expr: sum by (route) (rate(streampredict_http_requests_total[1m]))
+      - record: streampredict:consumer_events:rate1m
+        expr: sum by (outcome) (rate(streampredict_consumer_events_total[1m]))
+      - record: streampredict:serving_latency_seconds:p95_1m
+        expr: histogram_quantile(0.95, sum by (le, version) (rate(streampredict_serving_request_duration_seconds_bucket[1m])))
+
+  - name: streampredict-alerts
+    rules:
+      - alert: StreamPredictTargetDown
+        expr: up{job=~"streampredict-.*"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.job }} target {{ $labels.instance }} is down"
+          description: Prometheus cannot scrape this service; it is crashed, unready, or unreachable.
+
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(streampredict_http_requests_total{status=~"5.."}[2m]))
+            / sum(rate(streampredict_http_requests_total[2m])) > 0.05
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "API 5xx rate {{ $value | humanizePercentage }} (> 5%)"
+          description: Check /ready and the inference, Redis, and Kafka dependencies.
+
+      - alert: PredictionLatencyHigh
+        # README target: synchronous p95 < 150 ms (excluding cold start).
+        expr: streampredict:prediction_latency_seconds:p95_1m > 0.15
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Prediction p95 {{ $value | humanizeDuration }} (> 150 ms)"
+          description: Look at model-serving queue time and batch size, and the cache hit rate.
+
+      - alert: KafkaConsumerLagHigh
+        # Every gateway replica reports the same group lag; take the max, not the sum.
+        expr: max(streampredict_kafka_consumer_lag) > 1000
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Consumer lag {{ $value }} events for 2 minutes"
+          description: Consumers are not keeping up; check KEDA scaling and consumer errors.
+
+      - alert: DeadLettersIncreasing
+        expr: sum(increase(streampredict_consumer_dead_letters_total[5m])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value | humanize }} events dead-lettered in 5 minutes"
+          description: See docs/runbooks/kafka-event-pipeline.md for inspection and replay.
+
+      - alert: ModelReleaseRolledBack
+        expr: max(delta(streampredict_controller_releases{outcome="rolled_back"}[15m])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: A model release failed its health gate and was rolled back
+          description: See the release history on the dashboard or the streampredict-deployments MLflow experiment.
+
+      - alert: ServingNoModelLoaded
+        expr: sum(streampredict_serving_model_ready) == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: No model-serving replica has a model version loaded
+          description: Check model-controller reconcile logs and the MLflow champion alias.
