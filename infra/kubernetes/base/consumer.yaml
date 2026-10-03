@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer
+  labels: { app.kubernetes.io/name: consumer }
+spec:
+  replicas: 2  # owned by KEDA after the first apply
+  progressDeadlineSeconds: 180
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector: { matchLabels: { app.kubernetes.io/name: consumer } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: consumer, app.kubernetes.io/part-of: streampredict } }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      # Finish and commit the in-flight batch, then leave the group (worker handles SIGTERM).
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: consumer
+          image: streampredict-consumer:latest
+          imagePullPolicy: Never
+          envFrom: [{ configMapRef: { name: streampredict-config } }]
+          env:
+            # Demo sizing: ~23 events/s per pod (1 in flight x 40 ms simulated enrichment), so a
+            # 100 RPS spike outruns 2 pods and KEDA has to scale toward 8 to drain the backlog.
+            - { name: CONSUMER_CONCURRENCY, value: "1" }
+            - { name: CONSUMER_SIMULATED_WORK_MS, value: "40" }
+            - { name: CONSUMER_BATCH_SIZE, value: "50" }
+          ports: [{ containerPort: 9102, name: metrics }]
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          # The metrics endpoint is served by the worker process itself.
+          livenessProbe: { tcpSocket: { port: metrics }, periodSeconds: 10 }
+          readinessProbe: { tcpSocket: { port: metrics }, periodSeconds: 5 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: consumer }
+spec:
+  maxUnavailable: 1
+  selector: { matchLabels: { app.kubernetes.io/name: consumer } }

@@ -1,0 +1,80 @@
+# Deployed model versions live on a volume written by model-controller and read by every serving
+# replica. ReadWriteOnce is enough on this single-node kind cluster (RWO is per node, not per pod);
+# a multi-node cluster needs ReadWriteMany storage (NFS/EFS) or an object-store sync instead.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: deployed-models }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 512Mi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-serving
+  labels: { app.kubernetes.io/name: model-serving }
+spec:
+  replicas: 2
+  progressDeadlineSeconds: 180
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector: { matchLabels: { app.kubernetes.io/name: model-serving } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: model-serving, app.kubernetes.io/part-of: streampredict } }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001 }
+      containers:
+        - name: model-serving
+          image: streampredict-model-serving:latest
+          imagePullPolicy: Never
+          env:
+            - { name: SERVING_MODEL_REPOSITORY, value: /models }
+            - { name: SERVING_LOG_LEVEL, value: INFO }
+          ports: [{ containerPort: 8000, name: http }]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 384Mi }
+          # Live as soon as the process serves; ready only once a model version is loaded.
+          livenessProbe: { httpGet: { path: /v2/health/live, port: http }, periodSeconds: 10 }
+          readinessProbe: { httpGet: { path: /v2/health/ready, port: http }, periodSeconds: 5 }
+          volumeMounts: [{ name: models, mountPath: /models, readOnly: true }]
+      volumes:
+        - name: models
+          persistentVolumeClaim: { claimName: deployed-models }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: model-serving }
+spec:
+  selector: { app.kubernetes.io/name: model-serving }
+  ports: [{ port: 8000, targetPort: http }]
+---
+# Resolves to every serving pod, ready or not, so model-controller can tell each replica to load
+# a new version (a fresh replica only becomes ready once a model is loaded).
+apiVersion: v1
+kind: Service
+metadata: { name: model-serving-peers }
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: { app.kubernetes.io/name: model-serving }
+  ports: [{ port: 8000, targetPort: http }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: model-serving }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: model-serving }
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: model-serving }
+spec:
+  minAvailable: 1
+  selector: { matchLabels: { app.kubernetes.io/name: model-serving } }

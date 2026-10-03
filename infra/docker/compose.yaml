@@ -103,6 +103,9 @@ services:
   mlflow:
     build: ./mlflow
     environment:
+      # MLflow 3 starts ~8 GenAI job-runner processes (~220 MB each) by default; this stack uses
+      # tracking and the registry only.
+      MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
       MLFLOW_S3_ENDPOINT_URL: http://seaweedfs:8333
       AWS_ACCESS_KEY_ID: streampredict
       AWS_SECRET_ACCESS_KEY: streampredict-dev-secret

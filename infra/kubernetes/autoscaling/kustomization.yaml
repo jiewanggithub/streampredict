@@ -1,0 +1,11 @@
+# Applied after Kafka is up and its topics exist (see scripts/deploy.sh): KEDA caches a failed
+# Kafka client if the ScaledObject is created while the broker is unreachable.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: streampredict
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: streampredict
+    includeSelectors: false
+resources:
+  - consumer-scaledobject.yaml

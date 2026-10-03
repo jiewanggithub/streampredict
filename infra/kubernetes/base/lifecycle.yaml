@@ -1,0 +1,173 @@
+# Model lifecycle backing services: Postgres (MLflow metadata), SeaweedFS (S3-compatible
+# artifacts), MLflow (tracking + registry, proxying artifacts), and the one-off registry seed.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels: { app.kubernetes.io/name: postgres }
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: postgres } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: postgres, app.kubernetes.io/part-of: streampredict } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18.6-alpine
+          env:
+            - { name: POSTGRES_USER, value: mlflow }
+            - { name: POSTGRES_DB, value: mlflow }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: streampredict-secrets, key: POSTGRES_PASSWORD } }
+          ports: [{ containerPort: 5432 }]
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          readinessProbe: { exec: { command: ["pg_isready", "-U", "mlflow", "-d", "mlflow"] }, periodSeconds: 5 }
+          livenessProbe: { tcpSocket: { port: 5432 }, periodSeconds: 20 }
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres }
+spec:
+  selector: { app.kubernetes.io/name: postgres }
+  ports: [{ port: 5432 }]
+---
+apiVersion: v1
+kind: Secret
+metadata: { name: seaweedfs-s3 }
+type: Opaque
+stringData:
+  s3.json: |
+    {
+      "identities": [
+        {
+          "name": "mlflow",
+          "credentials": [{ "accessKey": "streampredict", "secretKey": "streampredict-dev-secret" }],
+          "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs
+  labels: { app.kubernetes.io/name: seaweedfs }
+spec:
+  serviceName: seaweedfs
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: seaweedfs } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: seaweedfs, app.kubernetes.io/part-of: streampredict } }
+    spec:
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:4.48
+          args: ["server", "-dir=/data", "-s3", "-s3.port=8333",
+                 "-s3.config=/etc/seaweedfs/s3.json", "-master.volumeSizeLimitMB=64"]
+          ports: [{ containerPort: 8333, name: s3 }]
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 384Mi }
+          readinessProbe: { httpGet: { path: /cluster/status, port: 9333 }, periodSeconds: 5 }
+          livenessProbe: { tcpSocket: { port: 8333 }, periodSeconds: 20, initialDelaySeconds: 20 }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: s3-config, mountPath: /etc/seaweedfs, readOnly: true }
+      volumes:
+        - name: s3-config
+          secret: { secretName: seaweedfs-s3 }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 1Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: seaweedfs }
+spec:
+  selector: { app.kubernetes.io/name: seaweedfs }
+  ports: [{ port: 8333, name: s3 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  labels: { app.kubernetes.io/name: mlflow }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app.kubernetes.io/name: mlflow } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: mlflow, app.kubernetes.io/part-of: streampredict } }
+    spec:
+      containers:
+        - name: mlflow
+          image: streampredict-mlflow:latest
+          imagePullPolicy: Never
+          command:
+            - sh
+            - -c
+            - >-
+              python /opt/init_bucket.py &&
+              exec mlflow server --host 0.0.0.0 --port 5000 --workers 1
+              --backend-store-uri "postgresql://mlflow:${POSTGRES_PASSWORD}@postgres:5432/mlflow"
+              --artifacts-destination s3://mlflow-artifacts/
+              --allowed-hosts "mlflow,mlflow:5000,localhost,localhost:5001,127.0.0.1:5001"
+          env:
+            # MLflow 3 starts ~8 GenAI job-runner processes (~220 MB each) by default; this stack
+            # uses tracking and the registry only.
+            - { name: MLFLOW_SERVER_ENABLE_JOB_EXECUTION, value: "false" }
+            - { name: MLFLOW_S3_ENDPOINT_URL, value: http://seaweedfs:8333 }
+            - { name: MLFLOW_ARTIFACT_BUCKET, value: mlflow-artifacts }
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: streampredict-secrets, key: AWS_ACCESS_KEY_ID } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: streampredict-secrets, key: AWS_SECRET_ACCESS_KEY } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: streampredict-secrets, key: POSTGRES_PASSWORD } }
+          ports: [{ containerPort: 5000 }]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 768Mi }
+          startupProbe: { httpGet: { path: /health, port: 5000 }, periodSeconds: 5, failureThreshold: 60 }
+          readinessProbe: { httpGet: { path: /health, port: 5000 }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /health, port: 5000 }, periodSeconds: 20 }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: mlflow }
+spec:
+  type: NodePort
+  selector: { app.kubernetes.io/name: mlflow }
+  ports: [{ port: 5000, nodePort: 30501 }]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: registry-seed
+spec:
+  backoffLimit: 10
+  template:
+    metadata: { labels: { app.kubernetes.io/name: registry-seed } }
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: streampredict-model-controller:latest
+          imagePullPolicy: Never
+          command: ["python", "-m", "streampredict_controller.seed",
+                    "--repository", "/app/ml/artifacts/model_repository", "--wait-seconds", "300"]
+          env:
+            - { name: CONTROLLER_MLFLOW_TRACKING_URI, value: http://mlflow:5000 }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 384Mi }
