@@ -10,7 +10,7 @@ export PRE_COMMIT_HOME := $(CURDIR)/.cache/pre-commit
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup format lint format-check typecheck test test-kafka validate api-dev consumer-dev serving-dev serving-lock controller-lock train k8s-up k8s-deploy k8s-status k8s-down api-lock dashboard-install dashboard-dev dashboard-check up down logs check hooks clean
+.PHONY: help setup format lint format-check typecheck test test-kafka validate api-dev consumer-dev serving-dev serving-lock controller-lock train prometheus-test k8s-up k8s-deploy k8s-status k8s-prometheus k8s-down api-lock dashboard-install dashboard-dev dashboard-check up down logs check hooks clean
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "StreamPredict development commands\n\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -87,6 +87,10 @@ down: ## Stop the local Docker Compose stack
 logs: ## Follow logs from the local Docker Compose stack
 	$(COMPOSE) logs -f
 
+prometheus-test: ## Validate Prometheus configs and unit-test the alerting rules (promtool in Docker)
+	docker run --rm --entrypoint promtool -v $(CURDIR)/infra/prometheus:/p -w /p/rules prom/prometheus:v3.15.0 test rules streampredict.rules.test.yml
+	docker run --rm --entrypoint promtool -v $(CURDIR)/infra/prometheus:/p -v $(CURDIR)/infra/prometheus/rules:/etc/prometheus/rules prom/prometheus:v3.15.0 check config --syntax-only /p/prometheus-compose.yml /p/kubernetes/prometheus.yml
+
 k8s-up: ## Create the kind cluster (+ metrics-server, KEDA) and deploy the stack
 	infra/kubernetes/scripts/up.sh
 
@@ -98,6 +102,9 @@ k8s-deploy: ## Re-apply manifests and roll out rebuilt images (cluster must exis
 k8s-status: ## Show pods, autoscalers, and recent scaling events
 	kubectl -n streampredict get pods,hpa,scaledobject
 	kubectl -n streampredict get events --field-selector reason=SuccessfulRescale --sort-by=.lastTimestamp | tail -10
+
+k8s-prometheus: ## Port-forward the in-cluster Prometheus UI to http://localhost:9090
+	kubectl -n streampredict port-forward svc/prometheus 9090:9090
 
 k8s-down: ## Delete the kind cluster
 	kind delete cluster --name streampredict

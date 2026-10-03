@@ -10,6 +10,11 @@ kubectl apply -k "$ROOT/infra/kubernetes/base"
 echo "==> waiting for Kafka and its topics before enabling lag-based autoscaling"
 kubectl -n "$NS" rollout status statefulset/kafka --timeout=300s
 kubectl -n "$NS" wait --for=condition=complete job/kafka-init --timeout=300s
+echo "==> Prometheus and kube-state-metrics"
+kubectl apply -k "$ROOT/infra/prometheus"
+kubectl -n "$NS" rollout status deployment/prometheus --timeout=300s
+# The gateway's standalone CPU HPA was replaced by a KEDA ScaledObject (CPU + RPS).
+kubectl -n "$NS" delete hpa api --ignore-not-found
 kubectl apply -k "$ROOT/infra/kubernetes/autoscaling"
 # Pods only pick up a reloaded image when the template changes; restart app workloads so a
 # rebuilt :latest image is used.

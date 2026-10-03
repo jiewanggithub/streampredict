@@ -9,3 +9,4 @@ labels:
     includeSelectors: false
 resources:
   - consumer-scaledobject.yaml
+  - api-scaledobject.yaml

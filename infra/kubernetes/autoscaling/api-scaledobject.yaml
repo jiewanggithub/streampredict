@@ -1,0 +1,25 @@
+# Gateway autoscaling on CPU and request rate (RPS from Prometheus). KEDA owns the resulting HPA
+# (keda-hpa-api); the replica count is the max of what either trigger asks for.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata: { name: api }
+spec:
+  scaleTargetRef: { name: api }
+  minReplicaCount: 2
+  maxReplicaCount: 4
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 60
+          policies: [{ type: Percent, value: 50, periodSeconds: 30 }]
+  triggers:
+    - type: cpu
+      metricType: Utilization
+      metadata: { value: "70" }
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.streampredict.svc.cluster.local:9090
+        # Target ~40 prediction requests per second per gateway pod.
+        query: sum(rate(streampredict_http_requests_total{route="/api/v1/predict"}[1m]))
+        threshold: "40"

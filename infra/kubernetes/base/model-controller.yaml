@@ -9,7 +9,9 @@ spec:
   strategy: { type: Recreate }
   selector: { matchLabels: { app.kubernetes.io/name: model-controller } }
   template:
-    metadata: { labels: { app.kubernetes.io/name: model-controller, app.kubernetes.io/part-of: streampredict } }
+    metadata:
+      labels: { app.kubernetes.io/name: model-controller, app.kubernetes.io/part-of: streampredict }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8000" }
     spec:
       securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001 }
       containers:

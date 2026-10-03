@@ -40,7 +40,9 @@ spec:
     rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
   selector: { matchLabels: { app.kubernetes.io/name: api } }
   template:
-    metadata: { labels: { app.kubernetes.io/name: api, app.kubernetes.io/part-of: streampredict } }
+    metadata:
+      labels: { app.kubernetes.io/name: api, app.kubernetes.io/part-of: streampredict }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "8000" }
     spec:
       serviceAccountName: api
       securityContext: { runAsNonRoot: true, runAsUser: 10001 }
@@ -71,17 +73,6 @@ spec:
   type: NodePort
   selector: { app.kubernetes.io/name: api }
   ports: [{ port: 8000, targetPort: http, nodePort: 30080 }]
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata: { name: api }
-spec:
-  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: api }
-  minReplicas: 2
-  maxReplicas: 4
-  metrics:
-    - type: Resource
-      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

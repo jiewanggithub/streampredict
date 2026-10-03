@@ -15,6 +15,7 @@ data:
   MODEL_VERSION: latest
   CONTROLLER_URL: http://model-controller:8000
   DEMO_ORCHESTRATOR_URL: http://demo-orchestrator:8000
+  PROMETHEUS_URL: http://prometheus:9090
   CORS_ALLOW_ORIGINS: http://localhost:3000
   DEPLOYMENT_PLATFORM: kubernetes
   DEMO_MAX_RPS: "100"
