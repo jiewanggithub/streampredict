@@ -102,7 +102,7 @@ export function StreamPredictDashboard() {
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [transport, setTransport] = useState<"sse" | "polling">("sse");
   const eventId = useRef(0);
-  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; replicas?: number; release?: string; rescale?: string; releaseStage?: string; demoState?: string; sessionId?: string | null }>({ connected: null });
+  const previous = useRef<{ connected: boolean | null; redis?: string; kafka?: string; replicas?: number; release?: string; rescale?: string; firing?: string[]; releaseStage?: string; demoState?: string; sessionId?: string | null }>({ connected: null });
 
   const addEvent = useCallback((message: string, tone: Tone = "info") => {
     eventId.current += 1;
@@ -135,6 +135,13 @@ export function StreamPredictDashboard() {
       if (prev.connected && next.deployment?.active && next.deployment.active.stage === "verifying" && prev.releaseStage !== "verifying") {
         addEvent(`Traffic switched to ${versionLabel(next.deployment.active.version)}; verifying against its training profile`);
       }
+      const firingNow = (next.observability?.alerts ?? []).filter((a) => a.state === "firing").map((a) => a.name);
+      for (const name of firingNow) {
+        if (prev.connected && !(prev.firing ?? []).includes(name)) {
+          const alert = next.observability?.alerts.find((a) => a.name === name);
+          addEvent(`Alert firing · ${name}: ${alert?.summary ?? ""}`, "warning");
+        }
+      }
       const kafkaState = next.kafka?.status;
       if (prev.kafka && kafkaState && prev.kafka !== kafkaState) {
         if (kafkaState === "ok") addEvent("Kafka reachable; async events flowing", "success");
@@ -158,7 +165,7 @@ export function StreamPredictDashboard() {
           );
         if (demo.state === "failed") addEvent(`Demo ended early (${demo.stop_reason ?? "unknown"})`, "warning");
       }
-      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, replicas: replicas ?? prev.replicas, release: latestKey, rescale: rescaleKey, releaseStage: next.deployment?.active?.stage, demoState: demo.state, sessionId: demo.session_id };
+      previous.current = { connected: true, redis: next.dependencies.redis, kafka: next.kafka?.status, replicas: replicas ?? prev.replicas, release: latestKey, rescale: rescaleKey, firing: firingNow, releaseStage: next.deployment?.active?.stage, demoState: demo.state, sessionId: demo.session_id };
       setOverview(next);
       setConnectionError(null);
     },
@@ -300,6 +307,8 @@ export function StreamPredictDashboard() {
   const infra = overview?.infrastructure ?? null;
   const deployment = overview?.deployment ?? null;
   const kube = infra?.kubernetes ?? null;
+  const alerts = overview?.observability?.alerts ?? [];
+  const firing = alerts.filter((a) => a.state === "firing");
   const model = overview?.model ?? null;
   const labelTotal = model ? LABEL_ORDER.reduce((sum, label) => sum + model.label_distribution[label], 0) : 0;
   const eventsDemo = active && overview?.demo.channel === "events";
@@ -390,10 +399,24 @@ export function StreamPredictDashboard() {
         ) : (
           <MetricCard label="REQUESTS / SECOND" value={fmt(traffic?.rps, "", 1)} detail={`${active ? "Synthetic demo traffic + API" : "5-second average"}${traffic?.scope === "cluster" ? " · all replicas" : ""}`} tone="cyan" history={history} />
         )}
-        <MetricCard label="P95 LATENCY" value={fmt(traffic?.p95_ms, " ms")} detail={traffic?.p50_ms != null ? `p50 ${fmt(traffic.p50_ms, " ms")} · p99 ${fmt(traffic.p99_ms, " ms")}` : "No traffic in the last 60s"} tone="violet" />
+        <MetricCard label="P95 LATENCY" value={fmt(traffic?.p95_ms, " ms")} detail={traffic?.p50_ms != null ? `p50 ${fmt(traffic.p50_ms, " ms")} · p99 ${fmt(traffic.p99_ms, " ms")}${traffic.latency_scope === "cluster" ? " · all replicas (Prometheus)" : ""}` : "No traffic in the last 60s"} tone="violet" />
         <MetricCard label="SUCCESS RATE" value={fmt(traffic?.success_rate, "%", 2)} detail={traffic ? `${traffic.errors_in_window} errors · ${traffic.requests_in_window.toLocaleString()} requests in 60s` : "Waiting for data"} tone="mint" />
         <MetricCard label="CACHE HIT RATE" value={fmt(cache?.hit_rate, "%")} detail={cache?.lookup_p95_ms != null ? `Redis lookup p95 ${fmt(cache.lookup_p95_ms, " ms", 2)}` : "No cache lookups yet"} tone="amber" />
       </section>
+
+      {alerts.length ? (
+        <section className={`alert-strip ${firing.length ? "firing" : "pending"}`} aria-label="Active alerts">
+          <strong>{firing.length ? `${firing.length} alert${firing.length > 1 ? "s" : ""} firing` : "Alerts pending"}</strong>
+          <ul>
+            {alerts.slice(0, 4).map((a) => (
+              <li key={`${a.name}-${a.active_at}`} className={`${a.severity} ${a.state}`}>
+                <span>{a.name}</span> {a.summary}
+              </li>
+            ))}
+          </ul>
+          <small>Prometheus rules · infra/prometheus/rules</small>
+        </section>
+      ) : null}
 
       <section className="dashboard-grid">
         <article className="panel system-panel">
@@ -402,8 +425,8 @@ export function StreamPredictDashboard() {
               <span className="section-kicker">REQUEST PATH</span>
               <h2>System topology</h2>
             </div>
-            <span className={redisStatus === "healthy" ? "panel-badge" : "scaling-label"}>
-              {!connected ? "API offline" : redisStatus === "healthy" ? "All live services healthy" : "Degraded · cache bypass"}
+            <span className={redisStatus === "healthy" && !firing.length ? "panel-badge" : "scaling-label"}>
+              {!connected ? "API offline" : firing.length ? `${firing.length} alert${firing.length > 1 ? "s" : ""} firing` : redisStatus === "healthy" ? "All live services healthy" : "Degraded · cache bypass"}
             </span>
           </div>
           <div className="service-flow">

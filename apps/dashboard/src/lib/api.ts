@@ -105,6 +105,16 @@ export type DeploymentStatus = {
   events: { at: number; level: string; message: string }[];
 };
 
+export type AlertInfo = { name: string; severity: string; state: "pending" | "firing" | "inactive"; summary: string; active_at: string | null };
+
+export type ObservabilityStatus = {
+  status: DependencyStatus;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+  alerts: AlertInfo[];
+};
+
 export type MetricsOverview = {
   generated_at: string;
   window_seconds: number;
@@ -118,6 +128,7 @@ export type MetricsOverview = {
   };
   traffic: {
     scope?: "cluster" | "replica";
+    latency_scope?: "cluster" | "replica";
     rps: number;
     rps_history: number[];
     p50_ms: number | null;
@@ -139,6 +150,7 @@ export type MetricsOverview = {
   kafka: KafkaMetrics | null;
   infrastructure: InfrastructureMetrics | null;
   deployment: DeploymentStatus | null;
+  observability?: ObservabilityStatus | null;
 };
 
 export type PredictionFeatures = {
