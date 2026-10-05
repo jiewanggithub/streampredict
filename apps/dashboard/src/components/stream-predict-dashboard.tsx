@@ -853,7 +853,7 @@ export function StreamPredictDashboard() {
 
       <footer>
         <span>StreamPredict · synthetic demo environment</span>
-        <span>Phase 2 · Next.js → FastAPI → Redis / Kafka → consumers → ONNX Runtime model serving</span>
+        <span>Next.js → FastAPI → Redis / Kafka → consumers → ONNX Runtime · MLflow · Prometheus · Kubernetes</span>
       </footer>
     </main>
   );
