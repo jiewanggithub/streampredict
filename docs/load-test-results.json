@@ -1,0 +1,82 @@
+{
+  "environment": "kind single node (Docker Desktop, 12 CPU / 7.7 GB) on Apple Silicon; generator in-cluster",
+  "repeat_ratio": 0.5,
+  "stages": [
+    {
+      "target_rps": 100,
+      "achieved_rps": 100.0,
+      "requests": 3000,
+      "success_rate": 100.0,
+      "p50_ms": 2.2,
+      "p95_ms": 7.6,
+      "p99_ms": 9.1,
+      "max_ms": 26.7,
+      "cache_hit_rate": 76.9,
+      "unfinished": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "max_schedule_lag_ms": 0.0,
+      "client_limited": false,
+      "status_counts": {
+        "200": 3000
+      }
+    },
+    {
+      "target_rps": 200,
+      "achieved_rps": 200.0,
+      "requests": 6000,
+      "success_rate": 100.0,
+      "p50_ms": 2.0,
+      "p95_ms": 7.1,
+      "p99_ms": 8.9,
+      "max_ms": 88.3,
+      "cache_hit_rate": 78.3,
+      "unfinished": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "max_schedule_lag_ms": 9.9,
+      "client_limited": false,
+      "status_counts": {
+        "200": 6000
+      }
+    },
+    {
+      "target_rps": 400,
+      "achieved_rps": 400.0,
+      "requests": 12000,
+      "success_rate": 100.0,
+      "p50_ms": 2.2,
+      "p95_ms": 6.6,
+      "p99_ms": 8.4,
+      "max_ms": 56.8,
+      "cache_hit_rate": 56.4,
+      "unfinished": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "max_schedule_lag_ms": 10.8,
+      "client_limited": false,
+      "status_counts": {
+        "200": 12000
+      }
+    },
+    {
+      "target_rps": 800,
+      "achieved_rps": 800.0,
+      "requests": 24000,
+      "success_rate": 100.0,
+      "p50_ms": 53.6,
+      "p95_ms": 215.7,
+      "p99_ms": 328.7,
+      "max_ms": 672.0,
+      "cache_hit_rate": 49.0,
+      "unfinished": 0,
+      "errors": 0,
+      "timeouts": 0,
+      "max_schedule_lag_ms": 6010.2,
+      "client_limited": true,
+      "status_counts": {
+        "200": 24000
+      }
+    }
+  ]
+}
