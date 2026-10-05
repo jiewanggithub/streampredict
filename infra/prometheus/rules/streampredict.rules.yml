@@ -1,5 +1,5 @@
 # Recording rules feed the dashboard (cluster-wide, across all replicas); alerting rules encode the
-# README's non-functional targets. Shared by Docker Compose and Kubernetes.
+# non-functional targets in docs/roadmap.md. Shared by Docker Compose and Kubernetes.
 groups:
   - name: streampredict-recording
     interval: 5s
@@ -44,7 +44,7 @@ groups:
           description: Check /ready and the inference, Redis, and Kafka dependencies.
 
       - alert: PredictionLatencyHigh
-        # README target: synchronous p95 < 150 ms (excluding cold start).
+        # Roadmap target: synchronous p95 < 150 ms (excluding cold start).
         expr: streampredict:prediction_latency_seconds:p95_1m > 0.15
         for: 5m
         labels: { severity: warning }

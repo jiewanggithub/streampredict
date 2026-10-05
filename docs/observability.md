@@ -41,7 +41,7 @@ the gateway's RPS autoscaler.
 | --- | --- | --- |
 | `StreamPredictTargetDown` | A service cannot be scraped for 1 min | critical |
 | `ApiHighErrorRate` | 5xx > 5 % of gateway requests for 2 min | critical |
-| `PredictionLatencyHigh` | Cluster p95 > 150 ms for 5 min (README target) | warning |
+| `PredictionLatencyHigh` | Cluster p95 > 150 ms for 5 min ([roadmap](roadmap.md) target) | warning |
 | `KafkaConsumerLagHigh` | Group lag > 1000 for 2 min | warning |
 | `DeadLettersIncreasing` | Any event dead-lettered in the last 5 min | warning |
 | `ModelReleaseRolledBack` | A release failed its health gate in the last 15 min | warning |

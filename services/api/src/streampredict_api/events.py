@@ -1,6 +1,6 @@
 """Prediction event contract and the Kafka publisher used by the API gateway.
 
-Events follow the contract in the README. Consumers accept any `1.x` schema version; a breaking
+Events follow the contract in docs/roadmap.md. Consumers accept any `1.x` schema version; a breaking
 change must bump the major version and keep the old one readable during the rollout.
 """
 
